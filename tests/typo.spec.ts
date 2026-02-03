@@ -7,7 +7,7 @@ test('Verify Blog breadcrumb typography', async ({ page }) => {
   await page.goto('https://stg.jakmax.com.au/blog/how-to-choose-the-right-brush-cutter-australia-and-keep-it-running-with-quality-spare-parts/', { timeout: 60000 });
 
   const blogText = page.locator(
-    'xpath=//*[@id="main-content"]/div/div/div[2]/div/div/div/div/div/div/div[1]/div/div/div[1]/a[2]'
+    '//*[@id="post-15256"]/div/div/div/div[2]/div/div/div[1]/div/h1'
   );
 
   const styles = await blogText.evaluate(el => {
