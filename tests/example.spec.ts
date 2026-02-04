@@ -32,7 +32,7 @@ test('Create Document Type', async ({ page }) => {
   // 8️⃣ Fill Document Type Name
   const docTypeInput = page.getByRole('textbox', { name: 'Document Type' });
   await docTypeInput.click();
-  await docTypeInput.fill('Allwin muthuraj');
+  await docTypeInput.fill('Allwayz Doc Type');
 
   // 9️⃣ Click Create
   await page.getByRole('button', { name: 'Create' }).click();
