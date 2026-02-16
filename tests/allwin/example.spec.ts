@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-
+test.setTimeout(30000);
 test('test', async ({ page }) => {
   await page.goto('https://staging-amazertrans.cargowayz.net/login/AMAZERTRANS');
   await page.locator('input[type="text"]').click();
@@ -9,4 +9,6 @@ test('test', async ({ page }) => {
   await page.locator('input[type="password"]').click();
   await page.locator('input[type="password"]').fill('sdfsfgsfg');
   await page.getByRole('button', { name: 'Login' }).click();
+  await await page.waitForTimeout(5000);
+  
 });
