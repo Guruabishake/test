@@ -1,0 +1,174 @@
+import { Page, Locator, expect } from '@playwright/test';
+import * as path from 'path';
+import { selectCustomDropdown, expandSection } from '../utils/commonActions';
+import { CustomerData, CustomerContact, BankDetails, GstDetails } from '../utils/testData';
+
+const CREATE_CUSTOMER_API = '/middleware/api/v1/customers/createCustomer';
+const sampleDocumentPath = path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'sample.png');
+
+export class CustomerPage {
+  readonly page: Page;
+  readonly pageHeading: Locator;
+  readonly createButton: Locator;
+  readonly filterButton: Locator;
+  readonly createFormHeading: Locator;
+  readonly submitButton: Locator;
+  readonly cancelButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.pageHeading = page.getByRole('heading', { name: 'Customer Management', exact: true });
+    // Rendered as two adjacent <span>s ("+" / "Create") with no separating whitespace in the DOM,
+    // so an exact "+ Create" role-name match is unreliable - match loosely on "create" instead.
+    this.createButton = page.getByRole('button', { name: /create/i }).first();
+    this.filterButton = page.getByRole('button', { name: 'Filter', exact: true });
+    this.createFormHeading = page.getByRole('heading', { name: 'Create Customer', exact: true });
+    this.submitButton = page.getByRole('button', { name: 'Create', exact: true });
+    this.cancelButton = page.getByRole('button', { name: 'Cancel', exact: true });
+  }
+
+  /** Real app navigation: sidebar CRM -> Customer Management (no direct URL navigation). */
+  async navigateFromSidebar() {
+    await this.page.getByRole('button', { name: 'CRM', exact: true }).click();
+    await this.page.getByRole('button', { name: 'Customer Management', exact: true }).click();
+    await expect(this.pageHeading).toBeVisible();
+  }
+
+  async verifyListingPageElements() {
+    await expect(this.pageHeading).toBeVisible();
+    await expect(this.createButton).toBeVisible();
+    await expect(this.filterButton).toBeVisible();
+    await expect(this.page.getByText('Customer ID', { exact: true })).toBeVisible();
+    await expect(this.page.getByText('Customer Name', { exact: true })).toBeVisible();
+    await expect(this.page.getByText('Approval Status', { exact: true })).toBeVisible();
+  }
+
+  async openCreateForm() {
+    await this.createButton.click();
+    await expect(this.createFormHeading).toBeVisible();
+  }
+
+  /** Confirms the core required fields and the submit control are present before filling anything. */
+  async verifyCreateFormFields() {
+    await expect(this.page.getByRole('textbox', { name: 'Customer Name' })).toBeVisible();
+    await expect(this.page.getByRole('textbox', { name: 'Address 1' })).toBeVisible();
+    await expect(this.page.getByRole('textbox', { name: 'City' })).toBeVisible();
+    await expect(this.page.getByRole('textbox', { name: 'Phone Number' })).toBeVisible();
+    await expect(this.page.getByRole('textbox', { name: 'Email Address' })).toBeVisible();
+    await expect(this.submitButton).toBeVisible();
+    await expect(this.cancelButton).toBeVisible();
+  }
+
+  async fillBasicDetails(data: Partial<CustomerData>) {
+    if (data.customerName !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Customer Name' }).fill(data.customerName);
+    }
+    if (data.customerType) {
+      await selectCustomDropdown(this.page, 'Customer Type', data.customerType);
+    }
+    if (data.subType) {
+      await selectCustomDropdown(this.page, 'Sub Type', data.subType);
+    }
+    if (data.gstApplicable) {
+      await selectCustomDropdown(this.page, 'Gst Applicable', data.gstApplicable);
+    }
+    if (data.address1 !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Address 1' }).fill(data.address1);
+    }
+    if (data.address2 !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Address 2' }).fill(data.address2);
+    }
+    if (data.state) {
+      await selectCustomDropdown(this.page, 'State', data.state);
+    }
+    if (data.city !== undefined) {
+      await this.page.getByRole('textbox', { name: 'City' }).fill(data.city);
+    }
+    if (data.phone !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Phone Number' }).fill(data.phone);
+    }
+    if (data.email !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Email Address' }).fill(data.email);
+    }
+    if (data.pan !== undefined) {
+      await this.page.getByRole('textbox', { name: 'PAN' }).fill(data.pan);
+    }
+  }
+
+  async fillContactDetails(contact: CustomerContact) {
+    await expandSection(this.page, 'Contact Details');
+    await this.page.getByRole('textbox', { name: 'First Name' }).fill(contact.firstName);
+    await this.page.getByRole('textbox', { name: 'Last Name' }).fill(contact.lastName);
+    await this.page.getByRole('textbox', { name: 'Designation' }).fill(contact.designation);
+    await this.page.locator('#phone_no').nth(1).fill(contact.phone);
+    await this.page.locator('#email').nth(1).fill(contact.email);
+  }
+
+  async fillBankDetails(bank: BankDetails) {
+    await expandSection(this.page, 'Bank Details');
+    await this.page.getByRole('textbox', { name: 'Bank Name' }).fill(bank.bankName);
+    await this.page.getByRole('textbox', { name: 'Account Number' }).fill(bank.accountNumber);
+    await selectCustomDropdown(this.page, 'Account Type', bank.accountType);
+    await this.page.getByRole('textbox', { name: 'IFSC Code' }).fill(bank.ifsc);
+    await this.page.getByRole('textbox', { name: 'Branch Name' }).fill(bank.branchName);
+  }
+
+  async fillKycDetails(gst: GstDetails) {
+    await expandSection(this.page, 'KYC Details');
+    await selectCustomDropdown(this.page, 'State', gst.state);
+    await this.page.getByRole('textbox', { name: 'GST No' }).fill(gst.gstNo);
+    await this.page.getByRole('textbox', { name: 'Branch 1' }).fill(gst.branchName);
+    await this.page.getByRole('textbox', { name: 'Branch Address' }).fill(gst.branchAddress);
+    await this.page.getByRole('textbox', { name: 'Pincode' }).fill(gst.pincode);
+  }
+
+  async uploadKycDocument(documentType = 'Aadhar') {
+    await expandSection(this.page, 'KYC Document Upload');
+    await selectCustomDropdown(this.page, 'Document Type', documentType);
+    await this.page.locator('input[type="file"]').setInputFiles(sampleDocumentPath);
+    await this.page.getByRole('button', { name: 'Upload', exact: true }).click();
+  }
+
+  async fillCreditDetails(paymentTermsDays: string, creditLimit: string) {
+    await expandSection(this.page, 'Credit Details');
+    await this.page.getByRole('checkbox', { name: 'Invoice Overdue' }).check();
+    await this.page.getByRole('textbox', { name: 'Payment Terms (In Days)' }).fill(paymentTermsDays);
+    await this.page.getByRole('checkbox', { name: 'Credit On Hold' }).check();
+    await this.page.getByRole('textbox', { name: 'Credit Limits' }).fill(creditLimit);
+  }
+
+  async submitAndExpectSuccess() {
+    const responsePromise = this.page.waitForResponse(
+      (res) => res.url().includes(CREATE_CUSTOMER_API) && res.request().method() === 'POST'
+    );
+    await this.submitButton.click();
+    const response = await responsePromise;
+    expect(response.status(), `createCustomer API should return 200. Body: ${await response.text()}`).toBe(200);
+    await expect(this.pageHeading).toBeVisible();
+    await expect(this.page).toHaveURL(/\/crm\/customerManagement/);
+  }
+
+  /** Submits and asserts the specific inline validation message(s) shown, without leaving the form. */
+  async submitAndExpectValidationErrors(...messages: string[]) {
+    await this.submitButton.click();
+    for (const message of messages) {
+      await expect(this.page.getByText(message, { exact: true }).first()).toBeVisible();
+    }
+    await expect(this.createFormHeading).toBeVisible();
+  }
+
+  /** Real backend duplicate-detection: reusing an existing customer's phone number returns HTTP 409. */
+  async submitAndExpectDuplicatePhoneError() {
+    const responsePromise = this.page.waitForResponse((res) => res.url().includes(CREATE_CUSTOMER_API));
+    await this.submitButton.click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(409);
+    const body = await response.json();
+    expect(body.message).toBe('A customer with this phone number already exists.');
+    await expect(this.createFormHeading).toBeVisible();
+  }
+
+  async verifyCustomerInListing(customerName: string) {
+    await expect(this.page.getByText(customerName, { exact: true }).first()).toBeVisible();
+  }
+}
