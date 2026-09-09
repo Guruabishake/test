@@ -23,9 +23,11 @@ function uniqueDigits(prefixDigit: string, seed: number): string {
 function generatePan(seed: number): string {
   // PAN field enforces exactly 10 characters (minlength = maxlength = 10 on the live form) and
   // is unique per customer/vendor ("A customer with this PAN number already exists." - confirmed
-  // on the live app), so this must stay unique across repeated runs, not just within one run.
-  const digits = (Date.now() + seed * 13) % 10000;
-  return `QAPAN${String(digits).padStart(4, '0')}X`;
+  // on the live app). The original 4-digit scheme (1 part in 10,000) collided in practice after
+  // enough repeated runs accumulated against this shared, persistent staging database - widened
+  // to 7 digits (1 part in 10,000,000) so a real collision is no longer realistically reachable.
+  const digits = (Date.now() * 1000 + seed) % 10_000_000;
+  return `QA${String(digits).padStart(7, '0')}X`;
 }
 
 export interface CustomerData {

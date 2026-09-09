@@ -5,6 +5,8 @@ import { CustomerData, CustomerContact, BankDetails, GstDetails } from '../utils
 
 const CREATE_CUSTOMER_API = '/middleware/api/v1/customers/createCustomer';
 const UPDATE_CUSTOMER_API = '/middleware/api/v1/customers/updateCustomer';
+const CUSTOMER_LIST_API = '/middleware/api/v1/customers/getCustomerList';
+const APPROVE_CUSTOMER_API = '/middleware/api/v1/customers/approveCustomer';
 const sampleDocumentPath = path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'sample.png');
 
 export class CustomerPage {
@@ -18,6 +20,12 @@ export class CustomerPage {
   readonly updateFormHeading: Locator;
   readonly updateButton: Locator;
   readonly backButton: Locator;
+  readonly viewFormHeading: Locator;
+  readonly filterSearchButton: Locator;
+  readonly filterResetButton: Locator;
+  readonly paginationContainer: Locator;
+  readonly previousPageButton: Locator;
+  readonly nextPageButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -32,6 +40,17 @@ export class CustomerPage {
     this.updateFormHeading = page.getByRole('heading', { name: 'Update Customer', exact: true });
     this.updateButton = page.getByRole('button', { name: 'Update', exact: true });
     this.backButton = page.getByRole('button', { name: 'Back', exact: true });
+    this.viewFormHeading = page.getByRole('heading', { name: 'View Customer', exact: true });
+    // Scoped to the filter panel context by name alone - Search/Reset only exist there.
+    this.filterSearchButton = page.getByRole('button', { name: 'Search', exact: true });
+    this.filterResetButton = page.getByRole('button', { name: 'Reset', exact: true });
+    // Confirmed live: pagination is a <ul> of <li><button> - Prev/Next are icon-only with no
+    // accessible name (first/last button in that list), so this is the one place a structural
+    // locator is unavoidable; numbered pages DO have a real accessible name (their own digit
+    // text) and are targeted by role+name instead, never by position.
+    this.paginationContainer = page.locator('ul').filter({ has: page.locator('li > button') }).first();
+    this.previousPageButton = this.paginationContainer.locator('li > button').first();
+    this.nextPageButton = this.paginationContainer.locator('li > button').last();
   }
 
   /** Real app navigation: sidebar CRM -> Customer Management (no direct URL navigation). */
@@ -198,6 +217,21 @@ export class CustomerPage {
     await expect(this.updateFormHeading).toBeVisible();
   }
 
+  /**
+   * Shared by Update and View verification: asserts the core field values match the real
+   * created/updated record. Customer Type is deliberately NOT included here - confirmed on the
+   * live app that it renders as the interactive combobox (visible "Domestic" text) on Update,
+   * but as a plain disabled `#customer_type` input (value attribute, no visible text node) on
+   * View - callers assert it their own way.
+   */
+  private async assertBasicFieldValues(data: CustomerData) {
+    await expect(this.page.getByRole('textbox', { name: 'Customer Name' })).toHaveValue(data.customerName);
+    await expect(this.page.getByRole('textbox', { name: 'Address 1' })).toHaveValue(data.address1);
+    await expect(this.page.getByRole('textbox', { name: 'City' })).toHaveValue(data.city);
+    await expect(this.page.getByRole('textbox', { name: 'Phone Number' })).toHaveValue(data.phone);
+    await expect(this.page.getByRole('textbox', { name: 'Email Address' })).toHaveValue(data.email);
+  }
+
   /** Verifies the Update screen is pre-populated with the record's real data and has the expected field/button states. */
   async verifyUpdateFormFields(data: CustomerData) {
     await expect(this.updateFormHeading).toBeVisible();
@@ -205,19 +239,69 @@ export class CustomerPage {
     const customerIdInput = this.page.locator('#customer_id');
     await expect(customerIdInput).toBeDisabled();
 
-    const nameInput = this.page.getByRole('textbox', { name: 'Customer Name' });
-    await expect(nameInput).toHaveValue(data.customerName);
-    await expect(nameInput).toBeEditable();
-
-    await expect(this.page.getByRole('textbox', { name: 'Address 1' })).toHaveValue(data.address1);
-    await expect(this.page.getByRole('textbox', { name: 'City' })).toHaveValue(data.city);
-    await expect(this.page.getByRole('textbox', { name: 'Phone Number' })).toHaveValue(data.phone);
-    await expect(this.page.getByRole('textbox', { name: 'Email Address' })).toHaveValue(data.email);
+    await this.assertBasicFieldValues(data);
+    await expect(this.page.getByRole('textbox', { name: 'Customer Name' })).toBeEditable();
     await expect(this.page.getByText(data.customerType, { exact: true })).toBeVisible();
 
     await expect(this.backButton).toBeVisible();
     await expect(this.cancelButton).toBeVisible();
     await expect(this.updateButton).toBeVisible();
+  }
+
+  /**
+   * Reads the Customer ID shown in the listing row (first column) for the exact record, so it
+   * can be cross-checked against the same field on the View screen - a real, data-driven
+   * comparison rather than only confirming a screen navigated.
+   */
+  async getCustomerIdFromListing(customerName: string): Promise<string> {
+    const row = this.getRowByCustomerName(customerName);
+    const idText = await row.locator(':scope > div').first().innerText();
+    return idText.trim();
+  }
+
+  /** Opens the exact record's read-only View screen by its unique Customer Name - never by row position. */
+  async viewCustomerByName(customerName: string) {
+    const row = this.getRowByCustomerName(customerName);
+    await row.getByRole('button', { name: 'View More', exact: true }).click();
+    await expect(this.viewFormHeading).toBeVisible();
+  }
+
+  /**
+   * Verifies the View screen: real data matches the record, Customer ID matches the listing,
+   * and the form is genuinely read-only. `expectedCustomerId` is optional so callers that
+   * haven't captured it yet can still verify the rest.
+   */
+  async verifyViewFormFields(data: CustomerData, expectedCustomerId?: string) {
+    await expect(this.viewFormHeading).toBeVisible();
+
+    const customerIdInput = this.page.locator('#customer_id');
+    await expect(customerIdInput).toBeDisabled();
+    if (expectedCustomerId) {
+      await expect(customerIdInput).toHaveValue(expectedCustomerId);
+    }
+
+    await this.assertBasicFieldValues(data);
+    await expect(this.page.locator('#customer_type')).toHaveValue(data.customerType);
+
+    // Confirmed on the live app: every field is disabled on View except State Code (a known,
+    // real inconsistency in the app itself) - so only the fields actually asserted elsewhere are
+    // checked here, rather than blindly asserting every input is disabled.
+    await expect(this.page.getByRole('textbox', { name: 'Customer Name' })).toBeDisabled();
+    await expect(this.page.getByRole('textbox', { name: 'Address 1' })).toBeDisabled();
+    await expect(this.page.getByRole('textbox', { name: 'City' })).toBeDisabled();
+    await expect(this.page.getByRole('textbox', { name: 'Phone Number' })).toBeDisabled();
+    await expect(this.page.getByRole('textbox', { name: 'Email Address' })).toBeDisabled();
+
+    // View has only a Back button - no Cancel/Update, confirmed live (don't assume a Close button).
+    await expect(this.backButton).toBeVisible();
+    await expect(this.cancelButton).not.toBeVisible();
+    await expect(this.updateButton).not.toBeVisible();
+  }
+
+  /** Confirmed on the live app: Back on the View screen returns to the listing (only button available there). */
+  async returnToListingFromView() {
+    await this.backButton.click();
+    await expect(this.pageHeading).toBeVisible();
   }
 
   async submitUpdateAndExpectSuccess() {
@@ -255,5 +339,195 @@ export class CustomerPage {
   async cancelUpdateForm() {
     await this.cancelButton.click();
     await expect(this.pageHeading).toBeVisible();
+  }
+
+  /**
+   * Opens the Filter panel. Confirmed live fields: Customer Name, Email, PAN (text inputs) and
+   * Customer Type, Status (the same custom comboboxes used on Create/Update) - no date range,
+   * no autocomplete, no checkboxes exist in this panel.
+   */
+  async openFilterPanel() {
+    await this.filterButton.click();
+    await expect(this.page.getByRole('textbox', { name: 'Customer Name' })).toBeVisible();
+  }
+
+  /**
+   * Fills whichever filter fields are provided and clicks Search. Reuses `selectCustomDropdown`
+   * (same widget as Create/Update) for Customer Type/Status - no duplicate dropdown handling.
+   * Confirmed live: all populated fields are combined with AND semantics, and Customer
+   * Name/Email/PAN match by substring (contains), not exact equality.
+   */
+  async applyFilter(criteria: {
+    customerName?: string;
+    email?: string;
+    pan?: string;
+    customerType?: 'Domestic' | 'Foreign';
+    status?: 'Active' | 'Inactive';
+  }) {
+    if (criteria.customerName !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Customer Name' }).fill(criteria.customerName);
+    }
+    if (criteria.email !== undefined) {
+      await this.page.getByRole('textbox', { name: 'Email', exact: true }).fill(criteria.email);
+    }
+    if (criteria.pan !== undefined) {
+      await this.page.getByRole('textbox', { name: 'PAN', exact: true }).fill(criteria.pan);
+    }
+    if (criteria.customerType) {
+      await selectCustomDropdown(this.page, 'Customer Type', criteria.customerType);
+    }
+    if (criteria.status) {
+      await selectCustomDropdown(this.page, 'Status', criteria.status);
+    }
+    // Wait for the real list API to resolve, not just the click - the row-reading helpers below
+    // take an immediate DOM snapshot with no auto-retry, so the new results must already be
+    // rendered before this method returns.
+    const responsePromise = this.page.waitForResponse(
+      (res) => res.url().includes(CUSTOMER_LIST_API) && res.request().method() === 'GET'
+    );
+    await this.filterSearchButton.click();
+    await responsePromise;
+  }
+
+  /** Confirmed live text for a non-matching filter: "No data matches your filter criteria." plus a "0 of N records" count. */
+  async expectNoFilterResults() {
+    await expect(this.page.getByText('No data matches your filter criteria.', { exact: true })).toBeVisible();
+    await expect(this.page.getByText(/^0 of \d+ records$/)).toBeVisible();
+  }
+
+  /** Asserts the filtered result count without hardcoding the ever-growing total record count. */
+  async expectFilteredResultCount(count: number) {
+    await expect(this.page.getByText(new RegExp(`^${count} of \\d+ records$`))).toBeVisible();
+  }
+
+  /** Confirmed live: the listing shows "N records" (no "of") only when no filter has been applied/after Reset. */
+  async expectUnfilteredListing() {
+    await expect(this.page.getByText(/^\d+ records$/)).toBeVisible();
+  }
+
+  /**
+   * Confirmed live: Reset immediately clears every field AND re-fetches the full unfiltered
+   * list in one action (the panel also closes) - no separate Search click is needed afterwards.
+   */
+  async resetFilter() {
+    await this.filterResetButton.click();
+    await expect(this.pageHeading).toBeVisible();
+    await this.expectUnfilteredListing();
+  }
+
+  /** Reads one column's visible values across every currently-rendered row (header excluded). Column order confirmed live via inline grid-template-columns. */
+  private async getListingColumnValues(columnIndex: number): Promise<string[]> {
+    const rows = this.page.locator('div[style*="grid-template-columns"]');
+    // .count()/.innerText() below take an immediate snapshot with no auto-retry, so wait for at
+    // least the header row to be present first. Only call this when results are expected -
+    // it will correctly return an empty array once stable, not hang, if there truly are none.
+    await expect(rows.first()).toBeVisible();
+    const rowCount = await rows.count();
+    const values: string[] = [];
+    for (let i = 1; i < rowCount; i++) {
+      values.push((await rows.nth(i).locator(':scope > div').nth(columnIndex).innerText()).trim());
+    }
+    return values;
+  }
+
+  async getVisibleCustomerNames(): Promise<string[]> {
+    return this.getListingColumnValues(1);
+  }
+
+  async getVisibleStatuses(): Promise<string[]> {
+    return this.getListingColumnValues(6);
+  }
+
+  pageNumberButton(pageNumber: number): Locator {
+    return this.paginationContainer.getByRole('button', { name: String(pageNumber), exact: true });
+  }
+
+  /**
+   * The windowed page-number list (e.g. "1 2 3 4 5 … 11") always renders the true final page as
+   * its last numbered button, confirmed live on both large (11-page) and small page counts -
+   * so this never needs to guess or hardcode the total.
+   */
+  async getLastPageNumber(): Promise<number> {
+    const numberButtons = this.paginationContainer.locator('li > button').filter({ hasText: /^\d+$/ });
+    const count = await numberButtons.count();
+    const text = await numberButtons.nth(count - 1).innerText();
+    return Number(text.trim());
+  }
+
+  /** Clicking a pagination control triggers a real list refetch - wait for it, not just the click, before the row-reading helpers run. */
+  private async waitForListReload(action: () => Promise<void>) {
+    const responsePromise = this.page.waitForResponse(
+      (res) => res.url().includes(CUSTOMER_LIST_API) && res.request().method() === 'GET'
+    );
+    await action();
+    await responsePromise;
+  }
+
+  async goToNextPage() {
+    await this.waitForListReload(() => this.nextPageButton.click());
+  }
+
+  async goToPreviousPage() {
+    await this.waitForListReload(() => this.previousPageButton.click());
+  }
+
+  async goToPage(pageNumber: number) {
+    await this.waitForListReload(() => this.pageNumberButton(pageNumber).click());
+  }
+
+  async expectCurrentPage(pageNumber: number) {
+    await expect(this.page).toHaveURL(new RegExp(`[?&]page=${pageNumber}(&|$)`));
+  }
+
+  /**
+   * Opens the Approve/Reject dialog for the exact customer row (via the existing
+   * `getRowByCustomerName` helper - never the first match on the page). Confirmed live: this is
+   * a two-step flow - clicking the row action only opens a dialog with Approve/Reject choice
+   * icons, a close (X) icon, and an OK button; it does not submit anything by itself.
+   */
+  async openApprovalDialog(customerName: string) {
+    const row = this.getRowByCustomerName(customerName);
+    await row.getByRole('button', { name: 'Approve or Reject', exact: true }).click();
+    await expect(this.page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+    await expect(this.page.getByRole('button', { name: 'Reject', exact: true })).toBeVisible();
+    await expect(this.page.getByRole('button', { name: 'OK', exact: true })).toBeVisible();
+    await expect(this.page.getByRole('button', { name: 'close-dialog' })).toBeVisible();
+  }
+
+  /** Selects Approve or Reject within the open dialog - this only highlights the choice, it does not submit. */
+  async selectApprovalDecision(decision: 'Approve' | 'Reject') {
+    await this.page.getByRole('button', { name: decision, exact: true }).click();
+  }
+
+  /** Confirms the currently-selected decision. Both Approve and Reject submit through the same real `approveCustomer` API. */
+  async confirmApprovalDialog() {
+    const responsePromise = this.page.waitForResponse(
+      (res) => res.url().includes(APPROVE_CUSTOMER_API) && res.request().method() === 'PUT'
+    );
+    await this.page.getByRole('button', { name: 'OK', exact: true }).click();
+    const response = await responsePromise;
+    expect(response.status(), `approveCustomer API should return 200. Body: ${await response.text()}`).toBe(200);
+  }
+
+  /** Confirmed live: the (X) close icon is the only way to dismiss the dialog without deciding - no separate labelled "Cancel" button exists, and closing this way makes no API call. */
+  async closeApprovalDialogWithoutDeciding() {
+    await this.page.getByRole('button', { name: 'close-dialog' }).click();
+  }
+
+  async approveCustomerByName(customerName: string) {
+    await this.openApprovalDialog(customerName);
+    await this.selectApprovalDecision('Approve');
+    await this.confirmApprovalDialog();
+  }
+
+  async rejectCustomerByName(customerName: string) {
+    await this.openApprovalDialog(customerName);
+    await this.selectApprovalDecision('Reject');
+    await this.confirmApprovalDialog();
+  }
+
+  /** Reads/asserts the listing's "Approval Status" column (Pending/Approved/Rejected) for the exact record - not exposed on the View screen (confirmed in the View phase), so the listing is the sole verification point. */
+  async expectApprovalStatus(customerName: string, status: 'Pending' | 'Approved' | 'Rejected') {
+    await expect(this.getRowByCustomerName(customerName).locator(':scope > div').nth(5)).toHaveText(status);
   }
 }
