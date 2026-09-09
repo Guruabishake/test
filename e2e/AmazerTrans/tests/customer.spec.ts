@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 import { CustomerPage } from '../pages/CustomerPage';
+import { captureScreenshot } from '../utils/screenshot';
 import {
   loginData,
   CUSTOMER_COUNT,
@@ -66,6 +67,129 @@ test.describe('Customer Management', () => {
 
       await customer.submitAndExpectSuccess();
       await customer.verifyCustomerInListing(data.customerName);
+    });
+  });
+
+  test.describe('Edit & Update', () => {
+    test('Update Customer screen shows the existing record data and correct field/button states', async ({
+      page,
+    }) => {
+      const customer = await loginAndOpenCustomerManagement(page);
+      const data = generateCustomerData(9500);
+      await customer.openCreateForm();
+      await customer.fillBasicDetails(data);
+      await customer.submitAndExpectSuccess();
+
+      await customer.editCustomerByName(data.customerName);
+      await customer.verifyUpdateFormFields(data);
+    });
+
+    test('Updates Customer Name, Address and City, and the change is reflected in the listing', async ({
+      page,
+    }) => {
+      const customer = await loginAndOpenCustomerManagement(page);
+      const original = generateCustomerData(9510);
+      await customer.openCreateForm();
+      await customer.fillBasicDetails(original);
+      await customer.submitAndExpectSuccess();
+
+      // Confirmed on the live app: the Customer Name field silently strips underscores as you
+      // type/set it (same real-time-sanitize pattern as Phone Number), so "_Updated" would land
+      // as "Updated" with no separator - a space survives instead.
+      const updatedName = `${original.customerName} Updated`;
+      const updatedCity = 'Madurai Updated City';
+
+      await customer.editCustomerByName(original.customerName);
+      try {
+        // Only the fields actually being changed are passed - fillBasicDetails leaves every
+        // other (already-populated) field untouched.
+        await customer.fillBasicDetails({ customerName: updatedName, city: updatedCity });
+        await customer.submitUpdateAndExpectSuccess();
+        await captureScreenshot(page, 'customer', 'update-success', updatedName);
+      } catch (error) {
+        await captureScreenshot(page, 'customer', 'update-failure', original.customerName);
+        throw new Error(`Customer update failed for "${original.customerName}": ${(error as Error).message}`);
+      }
+
+      await customer.verifyCustomerInListing(updatedName);
+
+      // Unchanged values (not shown in the listing table) must still be intact - reopen and check.
+      await customer.editCustomerByName(updatedName);
+      await expect(page.getByRole('textbox', { name: 'Phone Number' })).toHaveValue(original.phone);
+      await expect(page.getByRole('textbox', { name: 'Email Address' })).toHaveValue(original.email);
+      await customer.cancelUpdateForm();
+    });
+
+    test('Cancel on the Update screen discards changes', async ({ page }) => {
+      // Confirmed on the live app: Cancel returns to the listing without calling updateCustomer,
+      // and any in-progress edits are discarded rather than saved.
+      const customer = await loginAndOpenCustomerManagement(page);
+      const data = generateCustomerData(9520);
+      await customer.openCreateForm();
+      await customer.fillBasicDetails(data);
+      await customer.submitAndExpectSuccess();
+
+      await customer.editCustomerByName(data.customerName);
+      await customer.fillBasicDetails({ city: 'ShouldNotPersist' });
+      await customer.cancelUpdateForm();
+      await customer.verifyCustomerInListing(data.customerName);
+
+      await customer.editCustomerByName(data.customerName);
+      await expect(page.getByRole('textbox', { name: 'City' })).toHaveValue(data.city);
+      await customer.cancelUpdateForm();
+    });
+
+    test.describe('Negative validations', () => {
+      test('Clearing Customer Name on Update shows the same required-field message as Create', async ({
+        page,
+      }) => {
+        const customer = await loginAndOpenCustomerManagement(page);
+        const data = generateCustomerData(9530);
+        await customer.openCreateForm();
+        await customer.fillBasicDetails(data);
+        await customer.submitAndExpectSuccess();
+
+        await customer.editCustomerByName(data.customerName);
+        await customer.fillBasicDetails({ customerName: '' });
+        await customer.submitUpdateAndExpectValidationErrors('Customer Name is required.');
+        await customer.cancelUpdateForm();
+      });
+
+      test('Invalid email format on Update is rejected by the browser (native type=email validation)', async ({
+        page,
+      }) => {
+        const customer = await loginAndOpenCustomerManagement(page);
+        const data = generateCustomerData(9531);
+        await customer.openCreateForm();
+        await customer.fillBasicDetails(data);
+        await customer.submitAndExpectSuccess();
+
+        await customer.editCustomerByName(data.customerName);
+        await customer.fillBasicDetails({ email: 'not-a-valid-email' });
+        const emailInput = page.getByRole('textbox', { name: 'Email Address' });
+        const isTypeMismatch = await emailInput.evaluate((el: HTMLInputElement) => el.validity.typeMismatch);
+        expect(isTypeMismatch).toBe(true);
+        await customer.cancelUpdateForm();
+      });
+
+      test('Updating Phone Number to another customer\'s value is rejected as a duplicate', async ({ page }) => {
+        const customer = await loginAndOpenCustomerManagement(page);
+        const customerA = generateCustomerData(9540);
+        const customerB = generateCustomerData(9541);
+
+        await customer.openCreateForm();
+        await customer.fillBasicDetails(customerA);
+        await customer.submitAndExpectSuccess();
+
+        await customer.openCreateForm();
+        await customer.fillBasicDetails(customerB);
+        await customer.submitAndExpectSuccess();
+
+        await customer.editCustomerByName(customerB.customerName);
+        await customer.fillBasicDetails({ phone: customerA.phone });
+        await customer.submitUpdateAndExpectDuplicatePhoneError();
+        await customer.cancelUpdateForm();
+      });
     });
   });
 

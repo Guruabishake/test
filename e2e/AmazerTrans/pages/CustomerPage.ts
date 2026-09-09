@@ -4,6 +4,7 @@ import { selectCustomDropdown, expandSection } from '../utils/commonActions';
 import { CustomerData, CustomerContact, BankDetails, GstDetails } from '../utils/testData';
 
 const CREATE_CUSTOMER_API = '/middleware/api/v1/customers/createCustomer';
+const UPDATE_CUSTOMER_API = '/middleware/api/v1/customers/updateCustomer';
 const sampleDocumentPath = path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'sample.png');
 
 export class CustomerPage {
@@ -14,6 +15,9 @@ export class CustomerPage {
   readonly createFormHeading: Locator;
   readonly submitButton: Locator;
   readonly cancelButton: Locator;
+  readonly updateFormHeading: Locator;
+  readonly updateButton: Locator;
+  readonly backButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -25,6 +29,9 @@ export class CustomerPage {
     this.createFormHeading = page.getByRole('heading', { name: 'Create Customer', exact: true });
     this.submitButton = page.getByRole('button', { name: 'Create', exact: true });
     this.cancelButton = page.getByRole('button', { name: 'Cancel', exact: true });
+    this.updateFormHeading = page.getByRole('heading', { name: 'Update Customer', exact: true });
+    this.updateButton = page.getByRole('button', { name: 'Update', exact: true });
+    this.backButton = page.getByRole('button', { name: 'Back', exact: true });
   }
 
   /** Real app navigation: sidebar CRM -> Customer Management (no direct URL navigation). */
@@ -170,5 +177,83 @@ export class CustomerPage {
 
   async verifyCustomerInListing(customerName: string) {
     await expect(this.page.getByText(customerName, { exact: true }).first()).toBeVisible();
+  }
+
+  /**
+   * The listing has no semantic <table>/<tr> - each row is a plain div laid out with inline
+   * CSS grid (confirmed via live DOM inspection), so rows are scoped by that structural marker
+   * plus the exact customer name they contain, rather than position/.nth().
+   */
+  getRowByCustomerName(customerName: string): Locator {
+    return this.page
+      .locator('div[style*="grid-template-columns"]')
+      .filter({ has: this.page.getByText(customerName, { exact: true }) })
+      .first();
+  }
+
+  /** Opens the exact record's Edit screen by its unique Customer Name - never by row position. */
+  async editCustomerByName(customerName: string) {
+    const row = this.getRowByCustomerName(customerName);
+    await row.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(this.updateFormHeading).toBeVisible();
+  }
+
+  /** Verifies the Update screen is pre-populated with the record's real data and has the expected field/button states. */
+  async verifyUpdateFormFields(data: CustomerData) {
+    await expect(this.updateFormHeading).toBeVisible();
+
+    const customerIdInput = this.page.locator('#customer_id');
+    await expect(customerIdInput).toBeDisabled();
+
+    const nameInput = this.page.getByRole('textbox', { name: 'Customer Name' });
+    await expect(nameInput).toHaveValue(data.customerName);
+    await expect(nameInput).toBeEditable();
+
+    await expect(this.page.getByRole('textbox', { name: 'Address 1' })).toHaveValue(data.address1);
+    await expect(this.page.getByRole('textbox', { name: 'City' })).toHaveValue(data.city);
+    await expect(this.page.getByRole('textbox', { name: 'Phone Number' })).toHaveValue(data.phone);
+    await expect(this.page.getByRole('textbox', { name: 'Email Address' })).toHaveValue(data.email);
+    await expect(this.page.getByText(data.customerType, { exact: true })).toBeVisible();
+
+    await expect(this.backButton).toBeVisible();
+    await expect(this.cancelButton).toBeVisible();
+    await expect(this.updateButton).toBeVisible();
+  }
+
+  async submitUpdateAndExpectSuccess() {
+    const responsePromise = this.page.waitForResponse(
+      (res) => res.url().includes(UPDATE_CUSTOMER_API) && res.request().method() === 'PUT'
+    );
+    await this.updateButton.click();
+    const response = await responsePromise;
+    expect(response.status(), `updateCustomer API should return 200. Body: ${await response.text()}`).toBe(200);
+    await expect(this.pageHeading).toBeVisible();
+    await expect(this.page).toHaveURL(/\/crm\/customerManagement/);
+  }
+
+  /** Submits an Update and asserts the specific inline validation message(s) shown, without leaving the form. */
+  async submitUpdateAndExpectValidationErrors(...messages: string[]) {
+    await this.updateButton.click();
+    for (const message of messages) {
+      await expect(this.page.getByText(message, { exact: true }).first()).toBeVisible();
+    }
+    await expect(this.updateFormHeading).toBeVisible();
+  }
+
+  /** Real backend duplicate-detection also applies on Update: reusing another customer's phone number returns HTTP 409. */
+  async submitUpdateAndExpectDuplicatePhoneError() {
+    const responsePromise = this.page.waitForResponse((res) => res.url().includes(UPDATE_CUSTOMER_API));
+    await this.updateButton.click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(409);
+    const body = await response.json();
+    expect(body.message).toBe('A customer with this phone number already exists.');
+    await expect(this.updateFormHeading).toBeVisible();
+  }
+
+  /** Confirmed on the live app: Cancel discards in-progress edits and returns to the listing without calling the update API. */
+  async cancelUpdateForm() {
+    await this.cancelButton.click();
+    await expect(this.pageHeading).toBeVisible();
   }
 }

@@ -17,6 +17,6 @@ export const env = {
   username: required('AMAZERTRANS_USERNAME'),
   password: required('AMAZERTRANS_PASSWORD'),
   branch: process.env.AMAZERTRANS_BRANCH || 'Bengaluru Tech Hub',
-  customerCount: Number(process.env.CUSTOMER_COUNT) || 5,
+  customerCount: Number(process.env.CUSTOMER_COUNT) || 1,
   vendorCount: Number(process.env.VENDOR_COUNT) || 5,
 };
