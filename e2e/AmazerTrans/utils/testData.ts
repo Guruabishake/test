@@ -145,3 +145,51 @@ export function generateVendorData(seed: number): VendorData {
     pan: generatePan(seed + 5000),
   };
 }
+
+export interface CargoItemData {
+  noOfPackages: string;
+  cargoName: string;
+  grossWt: string;
+  netWt: string;
+  uom: string;
+  commodity: string;
+  kindOfPackages: string;
+  dgNonDg: string;
+}
+
+export interface EnquiryData {
+  sourceOfEnquiry: string;
+  shipmentMode: 'Air' | 'Sea' | 'Road' | 'Rail';
+  shipmentDirection: 'Export' | 'Import' | 'CROSS TRADE';
+  businessType: 'Generated' | 'Nominated';
+  destinationClearanceBy: 'AMAZERTRANS' | 'Vendor' | 'Customer';
+  destinationClearanceLocation: string;
+  cargo: CargoItemData;
+}
+
+/**
+ * Generates a unique Enquiry (Freight-Forwarding service only - the one scope automated so far;
+ * Customs Broker/Transport Management System have their own distinct required-field sets,
+ * confirmed live but not yet automated). No uniqueness constraint was found on any of these
+ * fields on the live app, so the seed is only used for traceability, not collision avoidance.
+ */
+export function generateEnquiryData(seed: number): EnquiryData {
+  return {
+    sourceOfEnquiry: 'Mail',
+    shipmentMode: 'Air',
+    shipmentDirection: 'Export',
+    businessType: 'Generated',
+    destinationClearanceBy: 'AMAZERTRANS',
+    destinationClearanceLocation: `Chennai Port ${seed}`,
+    cargo: {
+      noOfPackages: '10',
+      cargoName: `QA Automation Cargo ${seed}`,
+      grossWt: '100',
+      netWt: '90',
+      uom: 'KGS',
+      commodity: 'General Cargo',
+      kindOfPackages: 'Boxes',
+      dgNonDg: 'Non DG',
+    },
+  };
+}

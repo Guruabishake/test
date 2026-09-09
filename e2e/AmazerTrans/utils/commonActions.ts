@@ -12,7 +12,12 @@ function exactTextPattern(text: string): RegExp {
  * container that holds both the combobox and its floating label - that wrapper is the
  * only reliable way to scope to the right field.
  */
-export async function selectCustomDropdown(page: Page, label: string, optionText: string) {
+export async function selectCustomDropdown(
+  page: Page,
+  label: string,
+  optionText: string,
+  matchMode: 'exact' | 'contains' = 'exact'
+) {
   const field = page.locator('div.relative.group', { has: page.getByText(label, { exact: true }) }).first();
   await field.getByRole('combobox').click();
   // The option list renders as plain <li> elements inside a custom listbox, which Chromium
@@ -20,7 +25,15 @@ export async function selectCustomDropdown(page: Page, label: string, optionText
   // getByRole('listitem') is therefore unreliable here, so this targets the <li> tag directly.
   // The panel also closes on blur, so pressing Enter in the (still-focused) search box - rather
   // than clicking the option - avoids a blur-before-click race that made direct clicks hang.
-  const option = page.locator('li').filter({ hasText: exactTextPattern(optionText) }).first();
+  // Most dropdowns (Customer/Vendor Type, State, etc.) render plain option text, so an exact
+  // match is the default and every existing call site keeps that behavior unchanged. Enquiry's
+  // "Customer Id" widget is the one confirmed exception: each <li> renders as
+  // "<name> [CUST-ID]" (the record's ID appended), so an anchored exact match never matches and
+  // callers for that field pass matchMode: 'contains' instead.
+  const option = page
+    .locator('li')
+    .filter({ hasText: matchMode === 'exact' ? exactTextPattern(optionText) : optionText })
+    .first();
   const searchBox = page.getByPlaceholder('Search...');
   await searchBox.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
   if (await searchBox.isVisible().catch(() => false)) {
