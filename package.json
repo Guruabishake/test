@@ -2,7 +2,13 @@
   "name": "test",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": {},
+  "scripts": {
+    "test:enquiry": "npx playwright test e2e/AmazerTrans/tests/enquiry.spec.ts --project=chromium --workers=1",
+    "test:enquiry:report": "node scripts/run-with-allure.js e2e/AmazerTrans/tests/enquiry.spec.ts ENQUIRY",
+    "test:quotation": "npx playwright test e2e/AmazerTrans/tests/quotation.spec.ts --project=chromium --workers=1",
+    "test:quotation:report": "node scripts/run-with-allure.js e2e/AmazerTrans/tests/quotation.spec.ts QUOTATION",
+    "report:allure": "allure generate allure-results --clean -o allure-report && allure open allure-report"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

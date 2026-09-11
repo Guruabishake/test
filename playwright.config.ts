@@ -19,14 +19,20 @@ export default defineConfig({
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    headless: !!process.env.CI,
+    // HEADLESS=true / HEADLESS=false overrides the CI-based default below without touching this file.
+    headless: process.env.HEADLESS !== undefined ? process.env.HEADLESS === 'true' : !!process.env.CI,
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    // VIDEO=off | on | retain-on-failure | on-first-retry overrides the default below.
+    video: (process.env.VIDEO as 'off' | 'on' | 'retain-on-failure' | 'on-first-retry') || 'retain-on-failure',
     /* Base URL to use in actions like `await page.goto('')`. */
     // baseURL: 'http://localhost:3000',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'retain-on-failure',
+    // SLOW_MO=300 (ms) slows down each Playwright action for manual observation; 0 (default) is unthrottled.
+    launchOptions: {
+      slowMo: Number(process.env.SLOW_MO) || 0,
+    },
   },
 
   /* Configure projects for major browsers */
