@@ -15,8 +15,6 @@ export const loginData = {
  */
 export const CUSTOMER_COUNT = env.customerCount;
 export const VENDOR_COUNT = env.vendorCount;
-export const ENQUIRY_COUNT = env.enquiryCount;
-export const QUOTATION_COUNT = env.quotationCount;
 
 /**
  * Configurable Enquiry "Upload File" test assets. Change these three paths to point at different
@@ -196,7 +194,7 @@ export interface CargoItemData {
 
 export interface EnquiryData {
   sourceOfEnquiry: string;
-  shipmentMode: 'Air' | 'Sea' | 'Road' | 'Rail';
+  shipmentMode: 'Air' | 'Sea';
   shipmentDirection: 'Export' | 'Import' | 'CROSS TRADE';
   businessType: 'Generated' | 'Nominated';
   destinationClearanceBy: 'AMAZERTRANS' | 'Vendor' | 'Customer';
@@ -206,100 +204,72 @@ export interface EnquiryData {
   cargo: CargoItemData;
 }
 
-export interface EnquiryConfig {
-  services: {
-    freightForwarding: boolean;
-    customsBroker: boolean;
-    transportManagementSystem: boolean;
-  };
+export type EnquiryServiceCombination = 'FF_CB' | 'CB_TMS' | 'FF_TMS' | 'FF_CB_TMS';
+
+export interface EnquiryServiceSelection {
+  freightForwarding: boolean;
+  customsBroker: boolean;
+  transportManagementSystem: boolean;
+}
+
+export interface EnquiryScenario {
+  name: string;
+  combination: EnquiryServiceCombination;
+  services: EnquiryServiceSelection;
   shipmentDirection: 'Export' | 'Import' | 'CROSS TRADE';
-  shipmentMode: 'Air' | 'Sea' | 'Road' | 'Rail';
-  upload: {
-    enabled: boolean;
-    filePath: string;
-    documentType: string;
-  };
-}
-
-const SUPPORTED_SERVICE_TOKENS = ['ALL', 'FREIGHT_FORWARDING', 'CUSTOMS_BROKER', 'TRANSPORT_MANAGEMENT_SYSTEM'] as const;
-
-/**
- * Parses the user-friendly `ENQUIRY_SERVICE_CONFIG` value into the three independent service
- * flags. Accepts "ALL", any single token, or a comma-separated combination (e.g.
- * "FREIGHT_FORWARDING,CUSTOMS_BROKER"). Fails fast with a clear, actionable message on an
- * unsupported value - never lets an invalid config reach the Page Object as an unclear locator
- * error later.
- */
-function parseEnquiryServiceConfig(rawValue: string): EnquiryConfig['services'] {
-  const tokens = rawValue
-    .split(',')
-    .map((t) => t.trim().toUpperCase())
-    .filter((t) => t.length > 0);
-
-  const invalid = tokens.filter((t) => !(SUPPORTED_SERVICE_TOKENS as readonly string[]).includes(t));
-  if (invalid.length > 0 || tokens.length === 0) {
-    throw new Error(
-      `Invalid ENQUIRY_SERVICE_CONFIG value:\n"${rawValue}"\n\n` +
-        `Supported values:\n` +
-        `ALL\n` +
-        `FREIGHT_FORWARDING\n` +
-        `CUSTOMS_BROKER\n` +
-        `TRANSPORT_MANAGEMENT_SYSTEM\n` +
-        `(or a comma-separated combination, e.g. "FREIGHT_FORWARDING,CUSTOMS_BROKER")`
-    );
-  }
-
-  const all = tokens.includes('ALL');
-  return {
-    freightForwarding: all || tokens.includes('FREIGHT_FORWARDING'),
-    customsBroker: all || tokens.includes('CUSTOMS_BROKER'),
-    transportManagementSystem: all || tokens.includes('TRANSPORT_MANAGEMENT_SYSTEM'),
-  };
+  shipmentMode: 'Air' | 'Sea';
 }
 
 /**
- * Central, environment-driven Enquiry configuration - the single place a tester changes Service
- * selection, Shipment Direction/Mode, and upload behavior, with no Page Object or spec code
- * change required. Edit these in `.env`:
- *
- *   ENQUIRY_SERVICE_CONFIG   "ALL" | "FREIGHT_FORWARDING" | "CUSTOMS_BROKER" |
- *                            "TRANSPORT_MANAGEMENT_SYSTEM" | a comma-separated combination
- *   SHIPMENT_DIRECTION       "Export" | "Import" | "CROSS TRADE"
- *   SHIPMENT_MODE            "Air" | "Sea" | "Road" | "Rail"
- *   ENQUIRY_UPLOAD_ENABLED   "true" | "false"
- *   ENQUIRY_UPLOAD_FILE      path to the file to upload (defaults to the existing sample asset)
- *   ENQUIRY_DOCUMENT_TYPE    the Document Type to select for the upload
- *
- * Defaults reproduce the original Freight-Forwarding/Air/Export/upload-enabled behavior exactly.
+ * The exactly-4 required Service combinations for Enquiry - no single-service Enquiry and no
+ * other combination is created anywhere in this spec. Air and Sea are the only Shipment Modes
+ * exercised (Road/Rail are out of scope). Each combination also gets its own Shipment
+ * Direction/Mode pairing so every scenario exercises genuinely different data, not just a
+ * different service list.
  */
-export function getEnquiryConfig(): EnquiryConfig {
-  return {
-    services: parseEnquiryServiceConfig(env.enquiryServiceConfig),
-    shipmentDirection: env.shipmentDirection as EnquiryConfig['shipmentDirection'],
-    shipmentMode: env.shipmentMode as EnquiryConfig['shipmentMode'],
-    upload: {
-      enabled: env.enquiryUploadEnabled,
-      filePath: env.enquiryUploadFile || ENQUIRY_UPLOAD_FILES.primary,
-      documentType: env.enquiryDocumentType,
-    },
-  };
-}
+export const ENQUIRY_SCENARIOS: EnquiryScenario[] = [
+  {
+    name: 'FF + CB',
+    combination: 'FF_CB',
+    services: { freightForwarding: true, customsBroker: true, transportManagementSystem: false },
+    shipmentDirection: 'Export',
+    shipmentMode: 'Sea',
+  },
+  {
+    name: 'CB + TMS',
+    combination: 'CB_TMS',
+    services: { freightForwarding: false, customsBroker: true, transportManagementSystem: true },
+    shipmentDirection: 'Import',
+    shipmentMode: 'Air',
+  },
+  {
+    name: 'FF + TMS',
+    combination: 'FF_TMS',
+    services: { freightForwarding: true, customsBroker: false, transportManagementSystem: true },
+    shipmentDirection: 'Export',
+    shipmentMode: 'Air',
+  },
+  {
+    name: 'FF + CB + TMS',
+    combination: 'FF_CB_TMS',
+    services: { freightForwarding: true, customsBroker: true, transportManagementSystem: true },
+    shipmentDirection: 'Import',
+    shipmentMode: 'Sea',
+  },
+];
 
 /**
- * Generates a unique Enquiry from an `EnquiryConfig` - the config-driven counterpart to
- * `generateEnquiryData`. Confirmed live: Shipment Type is required for every mode except Air
- * (confirmed for Sea; applied the same way for Road/Rail as the only reasonable generalization,
- * since the field itself is identical and always optional-or-required by mode, never by direction)
- * and left unset for Air, where it's optional. Cargo mirrors the same real Mode-driven shape
- * already confirmed for the plain generators: Air -> Volume In MT, every other mode -> container
- * fields + CBM.
+ * Generates a unique Enquiry for one `EnquiryScenario` - the combination-driven counterpart to
+ * `generateEnquiryData`. Confirmed live: Shipment Type is required for every mode except Air, and
+ * Cargo's field set is driven by Shipment Mode alone (Air -> Volume In MT, Sea -> container
+ * fields + CBM) - the same real rules already confirmed for the plain generator below.
  */
-export function generateConfiguredEnquiryData(seed: number, config: EnquiryConfig): EnquiryData {
-  const isAir = config.shipmentMode === 'Air';
+export function generateEnquiryScenarioData(seed: number, scenario: Pick<EnquiryScenario, 'shipmentDirection' | 'shipmentMode'>): EnquiryData {
+  const isAir = scenario.shipmentMode === 'Air';
   return {
     sourceOfEnquiry: 'Mail',
-    shipmentMode: config.shipmentMode,
-    shipmentDirection: config.shipmentDirection,
+    shipmentMode: scenario.shipmentMode,
+    shipmentDirection: scenario.shipmentDirection,
     businessType: 'Generated',
     destinationClearanceBy: 'AMAZERTRANS',
     destinationClearanceLocation: `Chennai Port ${seed}`,
@@ -415,79 +385,6 @@ export function generateEnquiryData(seed: number): EnquiryData {
   };
 }
 
-/**
- * Generates a unique Sea-mode Freight-Forwarding Enquiry whose Cargo is both containerized and
- * DG-classified - confirmed live to be the two real dependent-field scenarios the plain Air/Non DG
- * default above never exercises: Shipment Mode 'Sea' swaps the Cargo popup's "Volume In MT" field
- * for No of Containers/Size Of Container/Type Of Container/CBM, and DG/Non-DG = 'DG' reveals IMO
- * No/IM DG No/IMO Class/UN No/Technical Name (absent entirely for Non DG).
- */
-export function generateSeaContainerDgEnquiryData(seed: number): EnquiryData {
-  return {
-    sourceOfEnquiry: 'Mail',
-    shipmentMode: 'Sea',
-    shipmentDirection: 'Import',
-    businessType: 'Generated',
-    destinationClearanceBy: 'AMAZERTRANS',
-    destinationClearanceLocation: `Chennai Port Sea ${seed}`,
-    // Confirmed live: required for Sea specifically (absent from Air's required set).
-    shipmentType: 'FCL',
-    cargo: {
-      noOfPackages: '3',
-      cargoName: `QA Automation Sea Cargo ${seed}`,
-      grossWt: '5000',
-      netWt: '4800',
-      uom: 'MT',
-      commodity: 'Chemicals',
-      kindOfPackages: 'Drums',
-      dgNonDg: 'DG',
-      noOfContainers: '1',
-      containerSize: '20',
-      containerType: 'GP',
-      cbm: '28',
-      imoNo: `IMO-${seed}`,
-      imDgNo: `IMDG-${seed}`,
-      imoClass: '3',
-      unNo: `UN${1000 + seed}`,
-      technicalName: 'Flammable Liquid, N.O.S.',
-    },
-  };
-}
-
-/**
- * Generates a unique Enquiry for the Customs Broker service. Confirmed live: Customs Broker's
- * Product Information tab renders a smaller field set than Freight-Forwarding/Transport
- * Management System (no Service field) - but the Customs Clearance requirement itself (at least
- * one of the Origin or Destination Clearance By/Location pairs) is NOT Freight-Forwarding-specific
- * as first assumed from static inspection - a real Create attempt confirmed it is enforced for
- * Customs Broker too, via the same "Please enter either Origin or Destination Clearance By/
- * Location" messages, so `destinationClearanceBy`/`Location` are filled here exactly as for
- * Freight-Forwarding (`EnquiryPage.fillFreightForwardingProductInfo` is reused for both).
- */
-export function generateCustomsBrokerEnquiryData(seed: number): EnquiryData {
-  return {
-    sourceOfEnquiry: 'Mail',
-    // Air (not Sea) deliberately: confirmed live that Sea's Cargo popup silently blocks Save
-    // without a visible Container Size/Type dropdown value (their real option lists were not
-    // confirmed this phase), so Air is used here to avoid that dependency entirely.
-    shipmentMode: 'Air',
-    shipmentDirection: 'Import',
-    businessType: 'Nominated',
-    destinationClearanceBy: 'AMAZERTRANS',
-    destinationClearanceLocation: `Chennai Port CB ${seed}`,
-    cargo: {
-      noOfPackages: '5',
-      cargoName: `QA Automation CB Cargo ${seed}`,
-      grossWt: '200',
-      netWt: '180',
-      uom: 'KGS',
-      commodity: 'General Cargo',
-      kindOfPackages: 'Pallets',
-      dgNonDg: 'Non DG',
-    },
-  };
-}
-
 export interface QuotationChargeData {
   chargeDescription: string;
   quantity: string;
@@ -496,19 +393,79 @@ export interface QuotationChargeData {
 }
 
 /**
- * Generates one Buy Rate charge row for Quotation Generation's Origin/International/Destination
- * sub-tabs. Confirmed live: selecting `chargeDescription` auto-fills HS Code and Charge Based On
- * (not set here - the app owns those values), and Value In INR is auto-calculated as
- * `Buy Rate x Quantity x Exchange Rate` (verified live by changing Quantity and observing the
- * total recalculate) - Exchange Rate itself is auto-filled once `buyCurrency` is selected and is
- * not set here either. "Base Charge - Direct Expenses (CB,FF,TMS)" is a real, generic Charge
- * Description confirmed to exist for every service, so it's the safe default across scenarios.
+ * Charge Description options confirmed live (via the real master list rendered in the Add
+ * Origin/International/Destination popup) to be tagged "(CB,FF,TMS)" - i.e. valid regardless of
+ * which of the 4 required Service combinations (FF+CB, CB+TMS, FF+TMS, FF+CB+TMS) the Quotation's
+ * originating Enquiry used. Six distinct entries, one more than the default 5-per-section count,
+ * so `generateBuyRateEntries` never has to repeat a Charge Description within one section.
  */
-export function generateQuotationChargeData(seed: number): QuotationChargeData {
+const SAFE_CHARGE_DESCRIPTIONS = [
+  'Base Charge - Direct Expenses (CB,FF,TMS)',
+  'BL FEE - Direct Expenses (CB,FF,TMS)',
+  'Container Freight Security Surcharge - Direct Expenses (CB,FF,TMS)',
+  'Customs Clearance & Documentation Fee - Direct Expenses (CB,TMS,FF)',
+  'branchwise2 - Direct Expenses (CRM,CB,FF,TMS,WMS,Finance Accounts,Others)',
+  'branchwise charge - Direct Expenses (CRM,CB,FF,TMS,Finance Accounts,WMS,Others)',
+];
+
+/**
+ * Generates `count` distinct Buy Rate charge rows for one Quotation section (Origin/International/
+ * Destination). Confirmed live: selecting `chargeDescription` auto-fills HS Code and Charge Based
+ * On, and Value In INR = Buy Rate x Quantity x Exchange Rate (Exchange Rate itself auto-filled once
+ * `buyCurrency` is chosen) - none of those three are set here, only the fields the popup actually
+ * requires input for. Every entry deliberately shares one `buyCurrency` (defaults to the confirmed
+ * real option "Pound") so the Summary tab's per-currency aggregation collapses to a single, exactly
+ * verifiable total instead of needing to track several currencies/exchange rates at once.
+ */
+export function generateBuyRateEntries(seed: number, count: number, buyCurrency: string = 'Pound'): QuotationChargeData[] {
+  return Array.from({ length: count }, (_, i) => ({
+    chargeDescription: SAFE_CHARGE_DESCRIPTIONS[i % SAFE_CHARGE_DESCRIPTIONS.length],
+    quantity: String(2 + ((seed + i) % 5)),
+    buyRate: String(50 + seed + i * 7),
+    buyCurrency,
+  }));
+}
+
+/**
+ * Configurable Quotation "Upload File" assets - QUOTATION_UPLOAD_FILES in .env accepts a
+ * comma-separated list of 2-3 filenames (resolved against the existing e2e/new_folder/assets
+ * directory, same as ENQUIRY_UPLOAD_FILES) or absolute paths, with no test-code change required.
+ * Defaults to the two existing real sample assets when unset.
+ */
+export const QUOTATION_UPLOAD_ENABLED = env.quotationUploadEnabled;
+export const QUOTATION_UPLOAD_FILES: string[] = (
+  env.quotationUploadFiles
+    ? env.quotationUploadFiles.split(',').map((f) => f.trim()).filter((f) => f.length > 0)
+    : ['sample.png', 'sample2.png']
+).map((f) => (path.isAbsolute(f) ? f : path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', f)));
+
+/**
+ * How many entries the Quotation test creates per section via the real Add Origin/International/
+ * Destination popup - QUOTATION_ORIGIN_COUNT/QUOTATION_INTERNATIONAL_COUNT/QUOTATION_DESTINATION_COUNT
+ * in .env, defaulting to 5 each.
+ */
+export const QUOTATION_ORIGIN_COUNT = env.quotationOriginCount;
+export const QUOTATION_INTERNATIONAL_COUNT = env.quotationInternationalCount;
+export const QUOTATION_DESTINATION_COUNT = env.quotationDestinationCount;
+
+export interface QuotationData {
+  origin: QuotationChargeData[];
+  international: QuotationChargeData[];
+  destination: QuotationChargeData[];
+  uploadFiles: string[];
+}
+
+/**
+ * Generates the complete Buy Rate data set for one Quotation - Origin/International/Destination
+ * entries (counts configurable via .env, default 5 each) plus the configured upload files. Distinct
+ * offsets per section (seed/seed+1000/seed+2000) keep Origin, International and Destination from
+ * ever generating identical rows for the same base seed.
+ */
+export function generateQuotationData(seed: number): QuotationData {
   return {
-    chargeDescription: 'Base Charge - Direct Expenses (CB,FF,TMS)',
-    quantity: String(2 + (seed % 5)),
-    buyRate: String(50 + seed),
-    buyCurrency: 'Pound',
+    origin: generateBuyRateEntries(seed, QUOTATION_ORIGIN_COUNT),
+    international: generateBuyRateEntries(seed + 1000, QUOTATION_INTERNATIONAL_COUNT),
+    destination: generateBuyRateEntries(seed + 2000, QUOTATION_DESTINATION_COUNT),
+    uploadFiles: QUOTATION_UPLOAD_FILES,
   };
 }

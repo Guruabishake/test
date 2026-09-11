@@ -269,9 +269,12 @@ export class EnquiryPage {
    * these two are checked by default (alongside the Goods rows) only when Shipment Mode is
    * Sea/Road/Rail - never Air, mirroring the same real Mode-driven rule already confirmed for
    * Cargo's own container fields - so only call this when the Enquiry's Shipment Mode is not Air.
-   * Container Pickup's own row additionally has a real "Stuffing" dropdown (Factory/CFS/ICD/SEZ)
-   * and "Stuffing Location" text field that Container Delivery does not have (stuffing happens at
-   * the origin leg only) - confirmed live, not assumed symmetric with Pickup.
+   * Container Pickup's own row additionally has a real "Destuffing" dropdown (Factory/CFS/ICD/SEZ)
+   * and "Destuffing Location" text field that Container Delivery does not have (re-confirmed live
+   * this phase via a real page snapshot - the field's actual accessible name is "Destuffing", not
+   * "Stuffing" as an earlier phase's notes assumed; using the wrong label hangs indefinitely since
+   * this repo sets no actionTimeout, so `selectCustomDropdown` retries its click forever against a
+   * combobox that never matches).
    */
   async fillTransportContainerRows(pickup: TransportContainerPickupData, delivery: TransportContainerDeliveryData) {
     await this.page.getByRole('button', { name: 'Transport', exact: true }).click();
@@ -281,8 +284,8 @@ export class EnquiryPage {
     await pickupRow.getByRole('button').first().click();
     await this.page.getByRole('textbox', { name: 'Pickup From' }).fill(pickup.location);
     await this.page.getByRole('textbox', { name: 'Pickup Address' }).fill(pickup.address);
-    await selectCustomDropdown(this.page, 'Stuffing', pickup.stuffing);
-    await this.page.getByRole('textbox', { name: 'Stuffing Location' }).fill(pickup.stuffingLocation);
+    await selectCustomDropdown(this.page, 'Destuffing', pickup.stuffing);
+    await this.page.getByRole('textbox', { name: 'Destuffing Location' }).fill(pickup.stuffingLocation);
     await this.page.locator('input[type="date"]').fill(pickup.date);
     await this.page.getByRole('button', { name: 'Update', exact: true }).click();
 
