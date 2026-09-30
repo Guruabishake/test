@@ -284,6 +284,22 @@ export class FFStuffingPage {
     throw new Error(`FFStuffingPage.fillAndVerify: "${label}" still reads "${actual}" instead of "${value}" after 3 attempts.`);
   }
 
+  /**
+   * Confirmed live: a lingering react-hot-toast overlay (`[data-rht-toaster]`) can sit directly
+   * over one of these popups' own submit button ("Add"/"Save"/"Update") and intercept ALL pointer
+   * events on it for the entire default click timeout - not the button being genuinely
+   * disabled/hidden/covered by another field, just an unrelated toast still finishing its own
+   * dismiss animation. Waiting (bounded) for it to clear first, then falling back to a forced
+   * click if it's somehow still in the way, avoids failing on it.
+   */
+  private async clickResilient(locator: Locator, timeout = 20_000) {
+    const toast = this.page.locator('[data-rht-toaster]').first();
+    await toast.waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => {});
+    await locator.click({ timeout }).catch(async () => {
+      await locator.click({ timeout: 10_000, force: true });
+    });
+  }
+
   /** Confirmed live: "Origin Office" is genuinely disabled on this form (same real "skip disabled fields, don't force them" convention already established elsewhere in this suite, e.g. CB's own StuffingPage.fillByLabel) - checks enabled state first rather than assuming every textbox is fillable. */
   private async fillGroupTextbox(label: string, value: string) {
     const textbox = this.page.locator('div.relative.group', { hasText: label }).first().getByRole('textbox');
@@ -414,7 +430,7 @@ export class FFStuffingPage {
       try {
         await this.page.getByRole('button', { name: /Add Vessel/i }).click({ timeout: 20_000 });
         await this.fillVesselPopupFields(record);
-        await this.page.getByRole('button', { name: 'Add', exact: true }).click({ timeout: 20_000 });
+        await this.clickResilient(this.page.getByRole('button', { name: 'Add', exact: true }));
         await expect(this.getVesselRowByVoyageNo(record.voyageNo)).toBeVisible({ timeout: 25_000 });
         return;
       } catch (err) {
@@ -472,7 +488,7 @@ export class FFStuffingPage {
   async addPackageRecord(record: FFPackageRecord) {
     await this.page.getByRole('button', { name: /Add Package/i }).click({ timeout: 20_000 });
     await this.fillPackagePopupFields(record);
-    await this.page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 20_000 });
+    await this.clickResilient(this.page.getByRole('button', { name: 'Save', exact: true }));
     await expect(this.getPackageRowByGrossWeight(record.grossWeight)).toBeVisible({ timeout: 25_000 });
   }
 
@@ -487,9 +503,9 @@ export class FFStuffingPage {
     const updateBtn = popup.getByRole('button', { name: 'Update', exact: true });
     const saveBtn = popup.getByRole('button', { name: 'Save', exact: true });
     if (await updateBtn.isVisible().catch(() => false)) {
-      await updateBtn.click({ timeout: 20_000 });
+      await this.clickResilient(updateBtn);
     } else {
-      await saveBtn.click({ timeout: 20_000 });
+      await this.clickResilient(saveBtn);
     }
     await expect(popup).not.toBeVisible({ timeout: 15_000 });
   }
@@ -541,7 +557,7 @@ export class FFStuffingPage {
     if (await linerField.isEnabled({ timeout: 5_000 }).catch(() => false)) {
       await linerField.fill(record.linerSeal, { timeout: 15_000 });
     }
-    await this.page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 20_000 });
+    await this.clickResilient(this.page.getByRole('button', { name: 'Save', exact: true }));
     await expect(this.getContainerRowByContainerNo(record.containerNo)).toBeVisible({ timeout: 25_000 });
   }
 
@@ -560,9 +576,9 @@ export class FFStuffingPage {
     const updateBtn = popup.getByRole('button', { name: 'Update', exact: true });
     const saveBtn = popup.getByRole('button', { name: 'Save', exact: true });
     if (await updateBtn.isVisible().catch(() => false)) {
-      await updateBtn.click({ timeout: 20_000 });
+      await this.clickResilient(updateBtn);
     } else {
-      await saveBtn.click({ timeout: 20_000 });
+      await this.clickResilient(saveBtn);
     }
     await expect(popup).not.toBeVisible({ timeout: 15_000 });
   }
@@ -603,7 +619,7 @@ export class FFStuffingPage {
   async addCargoRecord(record: FFCargoRecord) {
     await this.page.getByRole('button', { name: /Add Cargo/i }).click({ timeout: 20_000 });
     await this.fillCargoPopupFields(record);
-    await this.page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 20_000 });
+    await this.clickResilient(this.page.getByRole('button', { name: 'Save', exact: true }));
     await expect(this.getCargoRowByName(record.cargoName)).toBeVisible({ timeout: 25_000 });
   }
 
@@ -617,9 +633,9 @@ export class FFStuffingPage {
     const updateBtn = popup.getByRole('button', { name: 'Update', exact: true });
     const saveBtn = popup.getByRole('button', { name: 'Save', exact: true });
     if (await updateBtn.isVisible().catch(() => false)) {
-      await updateBtn.click({ timeout: 20_000 });
+      await this.clickResilient(updateBtn);
     } else {
-      await saveBtn.click({ timeout: 20_000 });
+      await this.clickResilient(saveBtn);
     }
     await expect(popup).not.toBeVisible({ timeout: 15_000 });
   }
@@ -669,7 +685,7 @@ export class FFStuffingPage {
   async addHblGroupRecord(record: FFHblGroupRecord) {
     await this.page.getByRole('button', { name: /Add New/i }).last().click({ timeout: 20_000 });
     await this.fillHblGroupPopupFields(record);
-    await this.page.getByRole('button', { name: 'Add', exact: true }).click({ timeout: 20_000 });
+    await this.clickResilient(this.page.getByRole('button', { name: 'Add', exact: true }));
     await expect(this.getHblGroupRowBySbNo(record.sbNo)).toBeVisible({ timeout: 25_000 });
   }
 
@@ -685,9 +701,9 @@ export class FFStuffingPage {
     const updateBtn = popup.getByRole('button', { name: 'Update', exact: true });
     const saveBtn = popup.getByRole('button', { name: 'Save', exact: true });
     if (await updateBtn.isVisible().catch(() => false)) {
-      await updateBtn.click({ timeout: 20_000 });
+      await this.clickResilient(updateBtn);
     } else {
-      await saveBtn.click({ timeout: 20_000 });
+      await this.clickResilient(saveBtn);
     }
     await expect(popup).not.toBeVisible({ timeout: 15_000 });
   }
