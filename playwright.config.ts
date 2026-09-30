@@ -2,6 +2,17 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // AmazerTrans has its own dedicated config (e2e/AmazerTrans/playwright.config.ts) with a
+  // config-driven, per-user account architecture - every spec there logs in with a real account
+  // via a fixture whose DEFAULT resolves to a genuine, real credential. Confirmed live: running
+  // pricing.spec.ts through THIS root config (e.g. a bare `npx playwright test
+  // e2e/AmazerTrans/tests/pricing.spec.ts` with no --config flag) makes every one of the 7 browser
+  // projects below fall back to that same default account, so a single accidental bare invocation
+  // opens 7 simultaneous sessions on one account - on top of whatever the dedicated config is
+  // already running - and the app allows only one active session per account. Excluding
+  // e2e/AmazerTrans here forces every invocation through its own config, which is the only
+  // correct way to run it anyway.
+  testIgnore: '**/AmazerTrans/**',
   timeout: 100000,
   /* Run tests in files in parallel */
   fullyParallel: true,

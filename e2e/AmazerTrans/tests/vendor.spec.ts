@@ -35,8 +35,10 @@ function omitMany<T extends object, K extends keyof T>(data: T, keys: K[]): Omit
 }
 
 // AmazerTrans only allows one active session per account (confirmed on the live app via its
-// "Duplicate Session Detected" dialog). Run this suite serially:
-// `npx playwright test e2e/AmazerTrans --project=chromium --workers=1`.
+// "Duplicate Session Detected" dialog). `mode: 'serial'` only orders tests within this file - the
+// cross-file guarantee against running another AmazerTrans spec's login in a parallel worker at
+// the same time is enforced by e2e/AmazerTrans/playwright.config.ts (workers: 1). Always run via
+// `npx playwright test --config=e2e/AmazerTrans/playwright.config.ts`, not the root config.
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Vendor Management', () => {

@@ -30,6 +30,12 @@ import { captureScreenshot } from '../utils/screenshot';
  * FF+CB+TMS - no single-service Enquiry and no other combination is ever created. Every Enquiry
  * created here reuses one of `ENQUIRY_SCENARIOS` (see testData.ts) so the combination, Shipment
  * Direction and Shipment Mode are always one of the 4 required, real pairings.
+ *
+ * AmazerTrans only allows one active session per account, and every AmazerTrans spec logs in with
+ * the same single account (`loginData`/.env) - `mode: 'serial'` below only orders tests within
+ * this file. The cross-file guarantee against another spec's login racing this one in a parallel
+ * worker is enforced by e2e/AmazerTrans/playwright.config.ts (workers: 1); always run via
+ * `npx playwright test --config=e2e/AmazerTrans/playwright.config.ts`, not the root config.
  */
 test.describe.configure({ mode: 'serial' });
 

@@ -2,7 +2,11 @@ import { Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const EVIDENCE_ROOT = path.resolve(process.cwd(), 'test-results', 'AmazerTrans-evidence');
+// Anchored to this file's own location, not process.cwd() - a command run from any directory
+// other than the repo root (e.g. e2e/AmazerTrans/tests) would otherwise silently scatter evidence
+// into a new, wrong test-results folder instead of the repo-root one Playwright's own outputDir
+// (see playwright.config.ts) and every existing diagnostic workflow already expect.
+const EVIDENCE_ROOT = path.resolve(__dirname, '..', '..', '..', 'test-results', 'AmazerTrans-evidence');
 
 function sanitize(value: string): string {
   return value.replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 80);

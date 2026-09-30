@@ -47,6 +47,12 @@ import { captureScreenshot } from '../utils/screenshot';
  * `EnquiryPage`'s methods, the same Customer/Vendor Page Objects - rather than a second, different
  * implementation, so "consuming the Enquiries created by the Enquiry flow" means literally the same
  * 4 combinations produced the same way, never a single-service or ad-hoc Enquiry.
+ *
+ * AmazerTrans only allows one active session per account, and every AmazerTrans spec logs in with
+ * the same single account (`loginData`/.env) - `mode: 'serial'` below only orders tests within
+ * this file. The cross-file guarantee against another spec's login racing this one in a parallel
+ * worker is enforced by e2e/AmazerTrans/playwright.config.ts (workers: 1); always run via
+ * `npx playwright test --config=e2e/AmazerTrans/playwright.config.ts`, not the root config.
  */
 test.describe.configure({ mode: 'serial' });
 

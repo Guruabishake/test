@@ -1,5 +1,5 @@
 import { Page, Locator, expect } from '@playwright/test';
-import { selectCustomDropdown } from '../utils/commonActions';
+import { selectCustomDropdown, clickUploadAndAwaitResponse } from '../utils/commonActions';
 import { EnquiryData, CargoItemData, TransportContainerPickupData, TransportContainerDeliveryData } from '../utils/testData';
 
 const CREATE_ENQUIRY_API = '/middleware/api/v1/enquiry/createEnquiry';
@@ -269,12 +269,15 @@ export class EnquiryPage {
    * these two are checked by default (alongside the Goods rows) only when Shipment Mode is
    * Sea/Road/Rail - never Air, mirroring the same real Mode-driven rule already confirmed for
    * Cargo's own container fields - so only call this when the Enquiry's Shipment Mode is not Air.
-   * Container Pickup's own row additionally has a real "Destuffing" dropdown (Factory/CFS/ICD/SEZ)
-   * and "Destuffing Location" text field that Container Delivery does not have (re-confirmed live
-   * this phase via a real page snapshot - the field's actual accessible name is "Destuffing", not
-   * "Stuffing" as an earlier phase's notes assumed; using the wrong label hangs indefinitely since
-   * this repo sets no actionTimeout, so `selectCustomDropdown` retries its click forever against a
-   * combobox that never matches).
+   * Container Pickup's own row additionally has a real "Stuffing" dropdown (Factory/CFS/ICD/SEZ)
+   * and "Stuffing Location" text field that Container Delivery does not have. This label has been
+   * re-confirmed live to swing back and forth between "Stuffing" and "Destuffing" across different
+   * environment updates (an earlier phase's notes assumed "Destuffing"; a later real screenshot,
+   * taken after this exact wrong assumption caused a genuine multi-minute hang, confirmed "Stuffing"
+   * is the current real label, matching the results table's own "STUFFING"/"STUFFING LOCATION"
+   * column headers) - using the wrong one hangs indefinitely since this repo sets no actionTimeout,
+   * so `selectCustomDropdown` retries its click forever against a combobox that never matches.
+   * Always re-verify this specific label against a live screenshot before trusting either name.
    */
   async fillTransportContainerRows(pickup: TransportContainerPickupData, delivery: TransportContainerDeliveryData) {
     await this.page.getByRole('button', { name: 'Transport', exact: true }).click();
@@ -284,8 +287,8 @@ export class EnquiryPage {
     await pickupRow.getByRole('button').first().click();
     await this.page.getByRole('textbox', { name: 'Pickup From' }).fill(pickup.location);
     await this.page.getByRole('textbox', { name: 'Pickup Address' }).fill(pickup.address);
-    await selectCustomDropdown(this.page, 'Destuffing', pickup.stuffing);
-    await this.page.getByRole('textbox', { name: 'Destuffing Location' }).fill(pickup.stuffingLocation);
+    await selectCustomDropdown(this.page, 'Stuffing', pickup.stuffing);
+    await this.page.getByRole('textbox', { name: 'Stuffing Location' }).fill(pickup.stuffingLocation);
     await this.page.locator('input[type="date"]').fill(pickup.date);
     await this.page.getByRole('button', { name: 'Update', exact: true }).click();
 
@@ -305,11 +308,19 @@ export class EnquiryPage {
    * values (e.g. "AIRWAY BILL"). Waits for the row to actually appear in the results table rather
    * than just the click, since Upload is an async call.
    */
+  /**
+   * Root-caused via a real trace of a failing Pricing run: this upload's own request was
+   * previously never awaited before checking the row, so on a slow response it could still be in
+   * flight when a LATER screen's own upload ran, and get mistaken for that screen's own response
+   * (generic response-URL matching, not request-scoped). Waiting for this exact click's own
+   * request/response first closes that race at the source.
+   */
   async uploadDocument(documentType: string, filePath: string) {
     await this.openTab('Upload File');
     await selectCustomDropdown(this.page, 'Document Type', documentType);
     await this.page.locator('input[type="file"]').setInputFiles(filePath);
-    await this.page.getByRole('button', { name: 'Upload', exact: true }).click();
+    const response = await clickUploadAndAwaitResponse(this.page, this.page.getByRole('button', { name: 'Upload', exact: true }));
+    expect(response.ok(), `Document upload should succeed. Status ${response.status()}`).toBeTruthy();
     // A real file upload (network round-trip for the configured file, e.g. the default ~3MB
     // sample.png) can genuinely take longer than the 5s default expect timeout under any latency -
     // this is not a fixed/blind wait, still resolves as soon as the row actually appears.

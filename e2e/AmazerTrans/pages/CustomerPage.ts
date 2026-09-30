@@ -1,13 +1,16 @@
 import { Page, Locator, expect } from '@playwright/test';
 import * as path from 'path';
-import { selectCustomDropdown, expandSection } from '../utils/commonActions';
+import { selectCustomDropdown, expandSection, clickUploadAndAwaitResponse } from '../utils/commonActions';
 import { CustomerData, CustomerContact, BankDetails, GstDetails } from '../utils/testData';
 
 const CREATE_CUSTOMER_API = '/middleware/api/v1/customers/createCustomer';
 const UPDATE_CUSTOMER_API = '/middleware/api/v1/customers/updateCustomer';
 const CUSTOMER_LIST_API = '/middleware/api/v1/customers/getCustomerList';
 const APPROVE_CUSTOMER_API = '/middleware/api/v1/customers/approveCustomer';
-const sampleDocumentPath = path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'sample.png');
+// Anchored to this file's own location, not process.cwd() - confirmed live that a command run
+// from any directory other than the repo root (e.g. e2e/AmazerTrans/tests) resolves cwd-relative
+// paths against the WRONG base and throws ENOENT.
+const sampleDocumentPath = path.resolve(__dirname, '..', '..', '..', 'e2e', 'new_folder', 'assets', 'sample.png');
 
 export class CustomerPage {
   readonly page: Page;
@@ -148,11 +151,19 @@ export class CustomerPage {
     await this.page.getByRole('textbox', { name: 'Pincode' }).fill(gst.pincode);
   }
 
+  /**
+   * Root-caused via a real trace of a failing Pricing run: this upload's own request was
+   * previously never awaited, so it could still be silently in flight minutes later - long enough
+   * to be mistaken, by an unrelated later screen's generic response-URL match, for THAT screen's
+   * own upload response. Waiting here for this exact click's own request/response closes that race
+   * at the source, not just downstream.
+   */
   async uploadKycDocument(documentType = 'Aadhar') {
     await expandSection(this.page, 'KYC Document Upload');
     await selectCustomDropdown(this.page, 'Document Type', documentType);
     await this.page.locator('input[type="file"]').setInputFiles(sampleDocumentPath);
-    await this.page.getByRole('button', { name: 'Upload', exact: true }).click();
+    const response = await clickUploadAndAwaitResponse(this.page, this.page.getByRole('button', { name: 'Upload', exact: true }));
+    expect(response.ok(), `KYC document upload should succeed. Status ${response.status()}`).toBeTruthy();
   }
 
   async fillCreditDetails(paymentTermsDays: string, creditLimit: string) {

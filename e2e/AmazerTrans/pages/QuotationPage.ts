@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { Page, Locator, expect } from '@playwright/test';
-import { selectCustomDropdown } from '../utils/commonActions';
+import { selectCustomDropdown, clickUploadAndAwaitResponse } from '../utils/commonActions';
 import { QuotationChargeData } from '../utils/testData';
 
 // Confirmed live via the network tab: PUT /middleware/api/v1/quotations/updateQuotation/{id} - the
@@ -261,11 +261,16 @@ export class QuotationPage {
    *
    * Root-caused via a real trace of a failing run (not assumed): calling this twice in a row
    * (needed whenever more than one file is uploaded to the same Quotation) is only safe once the
-   * FIRST upload's actual `POST /uploads/documents` server round-trip has completed - the trace
-   * showed the app silently drops a second "Upload" click issued while the first one is still
-   * in-flight (no second network request is even sent, despite the click itself succeeding), not
-   * merely a slow row-render. Waiting on the real response, not the row-render, is therefore the
-   * fix - `waitForResponse` here, same convention already used for Enquiry/Quotation Create/Update.
+   * FIRST upload's actual `POST /uploads/documents` server round-trip has completed - the app
+   * silently drops a second "Upload" click issued while any upload (even an unrelated one on a
+   * completely different record, e.g. Customer/Vendor's own KYC upload from earlier in the same
+   * session) is still in flight, rather than queuing it. Correlating via
+   * `clickUploadAndAwaitResponse` (request-scoped, not a generic response-URL match) is required
+   * here too: a second real trace showed a stale, still-pending KYC upload response resolve at
+   * exactly the wrong moment and get mistaken, by the old `waitForResponse(urlPattern)` predicate,
+   * for THIS upload's own response - letting the code wrongly believe it had succeeded while the
+   * app had actually silently dropped the click, so the very next upload in the loop then found no
+   * row at all.
    */
   async uploadDocument(documentType: string, filePath: string) {
     const fileName = path.basename(filePath);
@@ -277,11 +282,7 @@ export class QuotationPage {
       .first();
     await expect(documentTypeField.getByRole('combobox')).toContainText(documentType);
     await this.page.locator('input[type="file"]').setInputFiles(filePath);
-    const responsePromise = this.page.waitForResponse(
-      (res) => res.url().includes('/uploads/documents') && res.request().method() === 'POST'
-    );
-    await this.page.getByRole('button', { name: 'Upload', exact: true }).click();
-    const response = await responsePromise;
+    const response = await clickUploadAndAwaitResponse(this.page, this.page.getByRole('button', { name: 'Upload', exact: true }));
     expect(response.ok(), `Document upload should succeed. Status ${response.status()}`).toBeTruthy();
     await expect(this.page.getByRole('cell', { name: fileName, exact: true }).first()).toBeVisible({ timeout: 20000 });
   }

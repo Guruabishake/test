@@ -11,6 +11,8 @@ node_modules/
 # Allure
 /allure-results/
 /allure-report/
+allure-results/
+allure-report/
 
 # Environment / secrets
 .env

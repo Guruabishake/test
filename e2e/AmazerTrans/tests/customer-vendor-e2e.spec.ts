@@ -43,9 +43,11 @@ async function loginAndOpenVendorManagement(page: import('@playwright/test').Pag
   return vendor;
 }
 
-// AmazerTrans only allows one active session per account (confirmed on the live app). Run this
-// suite serially, and alongside customer.spec.ts/vendor.spec.ts with a single worker:
-// `npx playwright test e2e/AmazerTrans --project=chromium --workers=1`.
+// AmazerTrans only allows one active session per account (confirmed on the live app). `mode:
+// 'serial'` only orders tests within this file - the cross-file guarantee against running another
+// AmazerTrans spec's login in a parallel worker at the same time is enforced by
+// e2e/AmazerTrans/playwright.config.ts (workers: 1). Always run via
+// `npx playwright test --config=e2e/AmazerTrans/playwright.config.ts`, not the root config.
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Customer End-to-End Workflow', () => {

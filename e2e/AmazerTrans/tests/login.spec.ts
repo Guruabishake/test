@@ -5,7 +5,11 @@ import { loginData } from '../utils/testData';
 // AmazerTrans only allows one active session per account (confirmed on the live app via its
 // "Duplicate Session Detected" dialog). Running these tests in parallel logs the same account
 // in from multiple workers at once and each login kicks the others out mid-test, so this suite
-// must run serially: `npx playwright test e2e/AmazerTrans --project=chromium --workers=1`.
+// must run serially. `test.describe.configure({ mode: 'serial' })` below only orders tests WITHIN
+// this file - it does not stop a DIFFERENT AmazerTrans spec file from being dispatched to a
+// separate parallel worker in the same invocation. That cross-file guarantee is enforced by
+// e2e/AmazerTrans/playwright.config.ts (workers: 1) - always run this suite via
+// `npx playwright test --config=e2e/AmazerTrans/playwright.config.ts`, not the root config.
 test.describe.configure({ mode: 'serial' });
 
 test.describe('AmazerTrans Login', () => {

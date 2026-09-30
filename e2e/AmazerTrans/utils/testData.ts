@@ -1,6 +1,11 @@
 import * as path from 'path';
 import { env } from './env';
 
+// Anchored to this file's own location, not process.cwd() - confirmed live that a command run
+// from any directory other than the repo root (e.g. e2e/AmazerTrans/tests) resolves cwd-relative
+// paths against the WRONG base and throws ENOENT.
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+
 export const loginData = {
   url: env.baseUrl,
   username: env.username,
@@ -23,14 +28,48 @@ export const VENDOR_COUNT = env.vendorCount;
  * is a deliberately non-document extension for the negative file-type test.
  */
 export const ENQUIRY_UPLOAD_FILES = {
-  primary: path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'sample.png'),
-  replacement: path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'sample2.png'),
-  unsupported: path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', 'unsupported.txt'),
+  primary: path.resolve(REPO_ROOT, 'e2e', 'new_folder', 'assets', 'sample.png'),
+  replacement: path.resolve(REPO_ROOT, 'e2e', 'new_folder', 'assets', 'sample2.png'),
+  unsupported: path.resolve(REPO_ROOT, 'e2e', 'new_folder', 'assets', 'unsupported.txt'),
 };
 
 function uniqueDigits(prefixDigit: string, seed: number): string {
   const n = (Date.now() + seed * 97) % 1_000_000_000;
   return prefixDigit + n.toString().padStart(9, '0');
+}
+
+/** Timestamp-driven, never reused between Combined Jobs or across runs - same uniqueness convention as `uniqueDigits` above, just a shorter 6-digit suffix to match this field's real "LBR-000001"-style format. */
+export function generateLinerBookingNo(seed: number): string {
+  const n = (Date.now() + seed * 13) % 1_000_000;
+  return `LBR-${String(n).padStart(6, '0')}`;
+}
+
+/** Timestamp-driven, never reused between Combined Jobs or across runs - same uniqueness convention as `uniqueDigits` above. */
+export function generateDocumentReferenceNumber(seed: number): string {
+  const n = (Date.now() + seed * 17) % 1_000_000;
+  return `DOC-${String(n).padStart(6, '0')}`;
+}
+
+export interface CombinedJobCargoEntry {
+  cargoName: string;
+  hsnCode: string;
+  commodity: string;
+}
+
+/**
+ * One unique Cargo Name/HSN Code/Commodity set for a Combined Job "Add Cargo" entry - `index`
+ * drives uniqueness within a single Combined Job's own 10-cargo batch. Confirmed live: "Cargo
+ * Name" is a plain free-text field (its `list="datalist-cargo_name"` attribute is an empty,
+ * dynamically-populated autocomplete hint, not a fixed set of real options to pick from), same
+ * convention as Commodity - not a constrained dropdown.
+ */
+export function generateCombinedJobCargoEntry(seed: number, index: number): CombinedJobCargoEntry {
+  const n = (Date.now() + (seed + index) * 31) % 100_000_000;
+  return {
+    cargoName: `QA Automation Cargo ${seed}-${index}`,
+    hsnCode: String(n).padStart(8, '0'),
+    commodity: `QA Automation Commodity ${seed}-${index}`,
+  };
 }
 
 function generatePan(seed: number): string {
@@ -416,10 +455,13 @@ const SAFE_CHARGE_DESCRIPTIONS = [
  * requires input for. Every entry deliberately shares one `buyCurrency` (defaults to the confirmed
  * real option "Pound") so the Summary tab's per-currency aggregation collapses to a single, exactly
  * verifiable total instead of needing to track several currencies/exchange rates at once.
+ * `startIndex` (default 0) offsets which `SAFE_CHARGE_DESCRIPTIONS` entries are used - Pricing's
+ * own extra Buy entry (added on top of the 5 Quotation already created per section) passes 5 here
+ * so it never repeats one of those 5 Charge Descriptions.
  */
-export function generateBuyRateEntries(seed: number, count: number, buyCurrency: string = 'Pound'): QuotationChargeData[] {
+export function generateBuyRateEntries(seed: number, count: number, buyCurrency: string = 'Pound', startIndex: number = 0): QuotationChargeData[] {
   return Array.from({ length: count }, (_, i) => ({
-    chargeDescription: SAFE_CHARGE_DESCRIPTIONS[i % SAFE_CHARGE_DESCRIPTIONS.length],
+    chargeDescription: SAFE_CHARGE_DESCRIPTIONS[(startIndex + i) % SAFE_CHARGE_DESCRIPTIONS.length],
     quantity: String(2 + ((seed + i) % 5)),
     buyRate: String(50 + seed + i * 7),
     buyCurrency,
@@ -437,7 +479,7 @@ export const QUOTATION_UPLOAD_FILES: string[] = (
   env.quotationUploadFiles
     ? env.quotationUploadFiles.split(',').map((f) => f.trim()).filter((f) => f.length > 0)
     : ['sample.png', 'sample2.png']
-).map((f) => (path.isAbsolute(f) ? f : path.resolve(process.cwd(), 'e2e', 'new_folder', 'assets', f)));
+).map((f) => (path.isAbsolute(f) ? f : path.resolve(REPO_ROOT, 'e2e', 'new_folder', 'assets', f)));
 
 /**
  * How many entries the Quotation test creates per section via the real Add Origin/International/
@@ -468,4 +510,474 @@ export function generateQuotationData(seed: number): QuotationData {
     destination: generateBuyRateEntries(seed + 2000, QUOTATION_DESTINATION_COUNT),
     uploadFiles: QUOTATION_UPLOAD_FILES,
   };
+}
+
+/**
+ * Configurable Contract/Sub Contract "Upload File" assets - CONTRACT_UPLOAD_FILES in .env, same
+ * comma-separated-list convention as QUOTATION_UPLOAD_FILES above. Used by BOTH the Subcontract's
+ * top-level Upload File tab and Contract Price's own nested one (confirmed live: two genuinely
+ * separate upload sections on the same form, not a naming variant of one).
+ */
+export const CONTRACT_UPLOAD_ENABLED = env.contractUploadEnabled;
+export const CONTRACT_UPLOAD_FILES: string[] = (
+  env.contractUploadFiles
+    ? env.contractUploadFiles.split(',').map((f) => f.trim()).filter((f) => f.length > 0)
+    : ['sample.png', 'sample2.png']
+).map((f) => (path.isAbsolute(f) ? f : path.resolve(REPO_ROOT, 'e2e', 'new_folder', 'assets', f)));
+
+/** One unique Contract - only the Customer Name is needed, Contract ID/Date/Status are all app-generated or default to "Active". */
+export interface ContractData {
+  customerName: string;
+}
+export function generateContractData(customerName: string): ContractData {
+  return { customerName };
+}
+
+export interface SubcontractData {
+  startDate: string;
+  endDate: string;
+}
+
+/** Start Date = today, End Date = +1 year - a realistic, always-valid Active contract period. `seed` only offsets the day slightly so back-to-back generated Subcontracts don't share the exact same dates. */
+export function generateSubcontractData(seed: number): SubcontractData {
+  const toIso = (d: Date) => d.toISOString().slice(0, 10);
+  const start = new Date();
+  start.setDate(start.getDate() + (seed % 3));
+  const end = new Date(start);
+  end.setFullYear(end.getFullYear() + 1);
+  return { startDate: toIso(start), endDate: toIso(end) };
+}
+
+/**
+ * CB (Customs Broker) Create Job unique identifiers - `MAWB-{seq}` / `HAWB-{seq}` / `CB-INV-{seq}`,
+ * same timestamp+seed uniqueness convention as `generateLinerBookingNo`/`generateDocumentReferenceNumber`
+ * above (never reused between CB Jobs or across runs).
+ */
+export function generateMawbNumber(seed: number): string {
+  const n = (Date.now() + seed * 41) % 1_000_000;
+  return `MAWB-${String(n).padStart(6, '0')}`;
+}
+export function generateHawbNumber(seed: number): string {
+  const n = (Date.now() + seed * 43) % 1_000_000;
+  return `HAWB-${String(n).padStart(6, '0')}`;
+}
+export function generateCbInvoiceNumber(seed: number): string {
+  const n = (Date.now() + seed * 47) % 1_000_000;
+  return `CB-INV-${String(n).padStart(6, '0')}`;
+}
+
+/** A real HS Code value used to enrich the source Combined Job's own Cargo record before CB copies it (the Enquiry-carried-over Cargo row has no HS Code of its own - confirmed live it shows "--" until edited). */
+export function generateCbHsnCode(seed: number): string {
+  const n = (Date.now() + seed * 53) % 100_000_000;
+  return String(n).padStart(8, '0');
+}
+
+export interface CBContainerSealTestEntry {
+  customsSealNo: string;
+  shipperSealNo: string;
+  linerSealNo: string;
+}
+
+/** Optional Customs/Shipper/Liner seal numbers for CB Job's own "Add Container" popup - `index` keeps them unique per container within the same job. */
+export function generateCBContainerSeals(seed: number, index: number): CBContainerSealTestEntry {
+  return {
+    customsSealNo: `CS-${seed}-${index}`,
+    shipperSealNo: `SS-${seed}-${index}`,
+    linerSealNo: `LS-${seed}-${index}`,
+  };
+}
+
+export interface CBShippingBillTestData {
+  portOfFinalDestination: string;
+  consigneeName: string;
+  cinNo: string;
+  cinSiteId: string;
+  leoNo: string;
+}
+
+/**
+ * The fields genuinely empty on CB's own "Create Shipping Bill" (Initiate SB) form - confirmed live
+ * that SB No./SB Date/PKG/Gross Wt/Net Weight/Port of Loading/Port of Discharge/Exporter Name/
+ * Invoice No all arrive already pre-filled, carried over from the CB Job itself, so this generator
+ * only covers what actually needs filling.
+ */
+export function generateCBShippingBillData(seed: number): CBShippingBillTestData {
+  return {
+    portOfFinalDestination: 'Chennai SEA',
+    consigneeName: `QA Automation Consignee ${seed}`,
+    cinNo: `CIN-${seed}`,
+    cinSiteId: `SITE-${seed}`,
+    leoNo: `LEO-${seed}`,
+  };
+}
+
+export interface CBStuffingTestData {
+  combinedJobNo: string;
+  referenceNo: string;
+  productType: string;
+}
+
+/** Booking Reference tab fields genuinely empty on CB's own "Stuffing-Create" form - Job No/Mode/Shipper/Consignee all arrive pre-filled, carried over from the Shipping Bill itself. `combinedJobNo` is filled in explicitly for traceability even though the app leaves it blank by default. */
+export function generateCBStuffingData(seed: number, combinedJobNo: string): CBStuffingTestData {
+  return {
+    combinedJobNo,
+    referenceNo: `REF-${seed}`,
+    productType: 'FCL',
+  };
+}
+
+/**
+ * Margin % applied to every applicable Sell Rate row on the Pricing screen - PRICING_MARGIN_PERCENT
+ * in .env, defaulting to "10". Confirmed live: Sell Rate = Buy Rate x (1 + Margin/100), recalculated
+ * live by the app the moment the Margin % cell is edited.
+ */
+export const PRICING_MARGIN_PERCENT = env.pricingMarginPercent;
+
+/**
+ * Confirmed live in the Charge Description master list: a "Direct Incomes" counterpart to the Buy
+ * side's "Direct Expenses" entries exists for use on Sell-only rows (added via Pricing's own
+ * "+Add <Section> Charge" button, which has no Buy-side counterpart and therefore no Margin %).
+ */
+export const PRICING_SELL_ONLY_CHARGE_DESCRIPTION = 'Base Charge - Direct Incomes (CB,FF,TMS)';
+
+/**
+ * One extra Buy-side entry for Pricing's own "+Add <Section>" button - confirmed live this mirrors
+ * automatically into a new Sell Rate row too. `startIndex: 5` (the 6th and last of
+ * SAFE_CHARGE_DESCRIPTIONS) guarantees this never repeats one of the 5 Charge Descriptions the
+ * Quotation phase already used in that same section.
+ */
+export function generatePricingExtraBuyEntry(seed: number): QuotationChargeData {
+  return generateBuyRateEntries(seed, 1, 'Pound', 5)[0];
+}
+
+/**
+ * One Sell-only entry for Pricing's own "+Add <Section> Charge" button - confirmed live this does
+ * NOT create a Buy-side counterpart (and so never gets a Margin % - "-" is shown instead).
+ */
+export function generatePricingExtraSellEntry(seed: number): QuotationChargeData {
+  return {
+    chargeDescription: PRICING_SELL_ONLY_CHARGE_DESCRIPTION,
+    quantity: String(2 + (seed % 5)),
+    buyRate: String(40 + seed),
+    buyCurrency: 'Pound',
+  };
+}
+
+export interface DraftInvoiceGeneralInfoData {
+  noOfInvoiceCopies: string;
+  consigneeAddress1: string;
+  consigneeAddress2: string;
+  consigneeAddress3: string;
+}
+
+export function generateDraftInvoiceGeneralInfo(seed: number): DraftInvoiceGeneralInfoData {
+  return {
+    noOfInvoiceCopies: '3',
+    consigneeAddress1: `QA Consignee Address Line 1 - ${seed}`,
+    consigneeAddress2: `QA Consignee Address Line 2 - ${seed}`,
+    consigneeAddress3: `QA Consignee Address Line 3 - ${seed}`,
+  };
+}
+
+export interface DraftInvoiceItemData {
+  description: string;
+  qty: string;
+  rate: string;
+  currency: string;
+}
+
+/**
+ * Confirmed live via the real "+Add New" Invoice Item popup on the Draft Invoice - Edit screen
+ * (a full dump of its own Description option list, 44 real entries): this popup's own master list
+ * uses a DIFFERENT real format from Pricing's own Charge Description list (no space around the
+ * dash, and tagged plain "(CB)" rather than "(CB,FF,TMS)") - e.g. "Base Charge-Direct Incomes
+ * (CB)", not "Base Charge - Direct Incomes (CB,FF,TMS)". `PRICING_SELL_ONLY_CHARGE_DESCRIPTION`
+ * (Pricing's own format) does not exist in this list and was root-caused live as the reason the
+ * dropdown search found zero matches.
+ *
+ * Also confirmed live via a real rejection ("This Charge description has already been added in the
+ * table."): the popup enforces a real uniqueness rule against the Draft Invoice's own already-
+ * populated table, which arrives pre-filled with one row per real Buy/Sell charge from upstream
+ * Quotation/Pricing - i.e. `SAFE_CHARGE_DESCRIPTIONS`' own 6 bases (Base Charge/BL FEE/Container
+ * Freight Security Surcharge/Customs Clearance & Documentation Fee/branchwise2/branchwise charge),
+ * mirrored here under the "Direct Incomes" tag. The two entries below are deliberately chosen OUTSIDE
+ * that set of 6 (confirmed present in the same live 44-entry dump) so they never collide with the
+ * pre-populated table regardless of which of the 6 bases a given seed's own upstream Quotation used.
+ */
+const DRAFT_INVOICE_ITEM_DESCRIPTIONS = ['Documentation Charges-Direct Incomes (CB)', 'Seal Charges-Direct Incomes (CB)'];
+
+/**
+ * Two distinct extra Invoice Items added on top of the Draft Invoice's own already-populated
+ * table (confirmed live: it arrives pre-filled from the upstream Quotation/Pricing Buy/Sell
+ * charges) - kept as two genuinely separate rows (different Description/Qty/Rate), never merged
+ * into one, per the real task requirement. Currency reuses "Pound" - the one Currency value
+ * already confirmed live and used throughout this entire suite's own Buy/Sell rate entries
+ * (`generateBuyRateEntries` etc.) - rather than guessing at a second, unconfirmed option.
+ */
+export function generateDraftInvoiceItems(seed: number): [DraftInvoiceItemData, DraftInvoiceItemData] {
+  return [
+    {
+      description: DRAFT_INVOICE_ITEM_DESCRIPTIONS[0],
+      qty: String(1 + (seed % 3)),
+      rate: String(100 + seed),
+      currency: 'Pound',
+    },
+    {
+      description: DRAFT_INVOICE_ITEM_DESCRIPTIONS[1],
+      qty: String(2 + (seed % 4)),
+      rate: String(200 + seed),
+      currency: 'Pound',
+    },
+  ];
+}
+
+export interface VendorBillLineItemData {
+  description: string;
+  qty: string;
+  rate: string;
+  currency: string;
+}
+
+/**
+ * Confirmed live via the real "+Add New" line-item popup on the Vendor Bill Create/Edit form (a
+ * full dump of its own Description option list, 36 real entries): this popup's own master list
+ * uses a THIRD distinct real format from both Draft Invoice's ("<Charge>-Direct Incomes (CB)") and
+ * Pricing's ("<Charge> - Direct Expenses (CB,FF,TMS)") - e.g. "Additional Charges-Indirect
+ * Expenses-CB", "Amendment Charge-Direct Expenses-CB". Two confirmed-real entries below.
+ */
+const VENDOR_BILL_ITEM_DESCRIPTIONS = ['Amendment Charge-Direct Expenses-CB', 'Auditor Fee-Indirect Expenses-CB'];
+
+export function generateVendorBillNo(seed: number): string {
+  return `TEST-VB-${seed}`;
+}
+
+/**
+ * One line item for the Vendor Bill Create flow (the real task only requires one). Currency reuses
+ * "Pound" - the one Currency value already confirmed live throughout this suite. `HS Code`/`Charge
+ * Based On`/`Exchange Rate`/etc are deliberately not generated here - confirmed live the popup
+ * either auto-fills them (Charge Based On) or leaves them genuinely blank (HS Code, unlike Draft
+ * Invoice's own popup) once Description is selected.
+ */
+export function generateVendorBillLineItem(seed: number): VendorBillLineItemData {
+  return {
+    description: VENDOR_BILL_ITEM_DESCRIPTIONS[seed % VENDOR_BILL_ITEM_DESCRIPTIONS.length],
+    qty: String(1 + (seed % 3)),
+    rate: String(100 + seed),
+    currency: 'Pound',
+  };
+}
+
+export interface FFTransportPlanData {
+  from: string;
+  to: string;
+  transhipmentPort: string;
+  mode: string;
+  vesselName: string;
+  voyageNo: string;
+  etd: string;
+  eta: string;
+}
+
+/**
+ * Confirmed live via the real "From"/"To" searchable dropdown on the CRO Edit -> Intended
+ * Transport Plan "+Add New" popup (a full dump of its own option list, 41 real entries, of which
+ * 15 were captured): this is the same real location master list used elsewhere on this form
+ * (Source/Destination also draw from it). 8 distinct confirmed-real entries below, enough to cycle
+ * through 10 generated records without ever pairing a location with itself.
+ */
+const FF_TRANSPORT_LOCATIONS = [
+  'Adalaj',
+  'ADANI',
+  'Agra ICD',
+  'Bangalore',
+  'Bangalore Air Cargo',
+  'Bombay SEA',
+  'Chennai Air',
+  'Colombo',
+];
+
+/**
+ * 10 distinct Intended Transport Plan records for the CRO Edit flow - confirmed live via a real
+ * end-to-end Add attempt that "Mode" is a plain fillable textbox (not a picklist, despite the app
+ * enforcing "Sea"/"Air" elsewhere) and ETD/ETA are native `type=date` inputs (`YYYY-MM-DD`).
+ * `seed` offsets which `FF_TRANSPORT_LOCATIONS` pair is used per record so From/To are never the
+ * same real location within one record.
+ */
+export function generateFFTransportPlans(seed: number): FFTransportPlanData[] {
+  return Array.from({ length: 10 }, (_, i) => {
+    const fromIndex = (seed + i) % FF_TRANSPORT_LOCATIONS.length;
+    const toIndex = (seed + i + 1) % FF_TRANSPORT_LOCATIONS.length;
+    return {
+      from: FF_TRANSPORT_LOCATIONS[fromIndex],
+      to: FF_TRANSPORT_LOCATIONS[toIndex],
+      transhipmentPort: 'Singapore',
+      mode: 'Sea',
+      vesselName: `QA Test Vessel ${i + 1}`,
+      // Zero-padded suffix - confirmed live an unpadded "-1" is a real substring of "-10",
+      // causing a genuine false-positive row match in code that looks up a record by its own
+      // Voyage No (e.g. a retry's "did this already register" check).
+      voyageNo: `VOY-${seed}-${String(i + 1).padStart(2, '0')}`,
+      etd: `2026-10-${String(1 + (i % 28)).padStart(2, '0')}`,
+      eta: `2026-10-${String(2 + (i % 27)).padStart(2, '0')}`,
+    };
+  });
+}
+
+export interface FFStuffingBookingReferenceData {
+  mblNo: string;
+  hblNo: string;
+}
+
+export function generateFFStuffingBookingReference(seed: number): FFStuffingBookingReferenceData {
+  return {
+    mblNo: `MBL-${seed}`,
+    hblNo: `HBL-${seed}`,
+  };
+}
+
+export interface FFStuffingScheduleData {
+  carrier: string;
+  scac: string;
+  haulage: string;
+  originOffice: string;
+  carrierBkg: string;
+}
+
+export function generateFFStuffingSchedule(seed: number): FFStuffingScheduleData {
+  return {
+    carrier: `QA Carrier ${seed}`,
+    scac: `SC${seed % 1000}`,
+    haulage: 'Merchant Haulage',
+    originOffice: 'Chennai Office',
+    carrierBkg: `CBKG-${seed}`,
+  };
+}
+
+export interface FFStuffingVesselData {
+  vessel: string;
+  voyageMode: string;
+  voyageNo: string;
+  from: string;
+  to: string;
+  siCutOff: string;
+  vgmCutOff: string;
+  gateIn: string;
+  amsCutOff: string;
+  imoNo: string;
+  etd: string;
+  eta: string;
+}
+
+/**
+ * 5 distinct Vessel Information records for the FF Stuffing Edit flow - confirmed live via a real
+ * end-to-end popup fill that From/To are real `role=combobox` pickers over the SAME real location
+ * master list already confirmed for CRO's own Intended Transport Plan, while SI Cut Off/VGM Cut
+ * Off/Gate In/AMS Cut Off/ETD/ETA are all native `type=date` inputs. `voyageMode` is a genuinely
+ * DIFFERENT concept from CB/CRO's own "Mode" ("Sea"/"Air") - confirmed live its own real, only two
+ * options are "Direct"/"Transhipment" (a real attempt with "Sea" found zero matches).
+ */
+export function generateFFStuffingVessels(seed: number, count = 5): FFStuffingVesselData[] {
+  return Array.from({ length: count }, (_, i) => {
+    const fromIndex = (seed + i + 2) % FF_TRANSPORT_LOCATIONS.length;
+    const toIndex = (seed + i + 3) % FF_TRANSPORT_LOCATIONS.length;
+    return {
+      vessel: `QA Stuffing Vessel ${i + 1}`,
+      voyageMode: i % 2 === 0 ? 'Direct' : 'Transhipment',
+      // Zero-padded suffix (same real substring-collision fix as generateFFTransportPlans, e.g.
+      // "-1" is a substring of "-10") so a Voyage No lookup can never falsely match a different record.
+      voyageNo: `SVOY-${seed}-${String(i + 1).padStart(2, '0')}`,
+      from: FF_TRANSPORT_LOCATIONS[fromIndex],
+      to: FF_TRANSPORT_LOCATIONS[toIndex],
+      siCutOff: `2026-10-${String(1 + (i % 28)).padStart(2, '0')}`,
+      vgmCutOff: `2026-10-${String(2 + (i % 27)).padStart(2, '0')}`,
+      gateIn: `2026-10-${String(3 + (i % 26)).padStart(2, '0')}`,
+      amsCutOff: `2026-10-${String(4 + (i % 25)).padStart(2, '0')}`,
+      // Confirmed live: "IMO No" silently strips non-digit characters (an "IMO" prefix never
+      // sticks, even via real keystrokes, not just `.fill()`) - kept purely numeric so the
+      // expected and actual values always match.
+      imoNo: `${seed}${i}`,
+      etd: `2026-10-${String(5 + (i % 24)).padStart(2, '0')}`,
+      eta: `2026-10-${String(6 + (i % 23)).padStart(2, '0')}`,
+    };
+  });
+}
+
+export interface FFStuffingPackageData {
+  noOfPkgs: string;
+  grossWeight: string;
+  netWeight: string;
+  uom: string;
+}
+
+/** `grossWeight` is made unique per record (a distinct 3-digit-derived value) so each row can be reliably targeted later for Edit/Delete without a natural unique key. */
+export function generateFFStuffingPackages(seed: number, count = 5): FFStuffingPackageData[] {
+  return Array.from({ length: count }, (_, i) => ({
+    noOfPkgs: String(5 + i),
+    grossWeight: String(500 + seed % 100 + i),
+    netWeight: String(450 + seed % 100 + i),
+    uom: 'KGS',
+  }));
+}
+
+export interface FFStuffingContainerData {
+  containerNo: string;
+  size: string;
+  type: string;
+  customsSeal: string;
+  shipperSeal: string;
+  linerSeal: string;
+}
+
+/** A single new Container record (confirmed live the real task only Adds/Edits/Deletes ONE, sequentially, unlike Vessel/Package/Cargo). A fresh, valid-format (4 letters + 7 digits) container number distinct from the source Combined Job's own real containers. */
+export function generateFFStuffingContainer(seed: number): FFStuffingContainerData {
+  return {
+    containerNo: `TSTU${String(1000000 + (seed % 900000)).padStart(7, '0')}`,
+    size: '20',
+    type: 'GP',
+    customsSeal: `CS-STUFF-${seed}`,
+    shipperSeal: `SS-STUFF-${seed}`,
+    linerSeal: `LS-STUFF-${seed}`,
+  };
+}
+
+export interface FFStuffingCargoData {
+  cargoName: string;
+  hsCode: string;
+  commodity: string;
+}
+
+/** `cargoName` is unique per record (confirmed live this field is free text, not a master-list picker) so each row can be reliably targeted for Edit/Delete - zero-padded so no suffix is ever a substring of another (e.g. "-1" of "-10"). */
+export function generateFFStuffingCargos(seed: number, count = 5): FFStuffingCargoData[] {
+  return Array.from({ length: count }, (_, i) => ({
+    cargoName: `QA Stuffing Cargo ${seed}-${String(i + 1).padStart(2, '0')}`,
+    hsCode: `HS${seed}${i}`,
+    commodity: 'General Cargo',
+  }));
+}
+
+export interface FFStuffingHblGroupData {
+  sbNo: string;
+  sbDate: string;
+  hblGrouping: string;
+  hblBkgForm: string;
+  noOfPackages: string;
+  kindOfPkgs: string;
+  grossWeight: string;
+  netWeight: string;
+  cbm: string;
+}
+
+/** `sbNo` is unique per record so each row can be reliably targeted for Edit/Delete (POL/POD are real comboboxes pre-filled from the source Combined Job and are left as-is, not overridden) - zero-padded so no suffix is ever a substring of another (e.g. "-1" of "-10"). */
+export function generateFFStuffingHblGroups(seed: number, count = 5): FFStuffingHblGroupData[] {
+  return Array.from({ length: count }, (_, i) => ({
+    sbNo: `HBLSB-${seed}-${String(i + 1).padStart(2, '0')}`,
+    sbDate: `2026-10-${String(1 + (i % 28)).padStart(2, '0')}`,
+    hblGrouping: `Group-${i + 1}`,
+    hblBkgForm: `Form-${i + 1}`,
+    noOfPackages: String(2 + i),
+    kindOfPkgs: 'Boxes',
+    grossWeight: String(100 + i),
+    netWeight: String(90 + i),
+    cbm: String(5 + i),
+  }));
 }
