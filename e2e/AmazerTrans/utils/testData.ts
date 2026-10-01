@@ -981,3 +981,37 @@ export function generateFFStuffingHblGroups(seed: number, count = 5): FFStuffing
     cbm: String(5 + i),
   }));
 }
+
+export interface FFDraftInvoiceHeaderData {
+  noOfInvoiceCopies: string;
+  blAwbNo: string;
+  consigneeAddress1: string;
+}
+
+/** FF Export Sea's own Draft Invoice Edit header - a genuinely different field set than CB's own Draft Invoice (BL/AWB No here, no Consignee Address 2/3 required by this continuation). */
+export function generateFFDraftInvoiceHeader(seed: number): FFDraftInvoiceHeaderData {
+  return {
+    noOfInvoiceCopies: '3',
+    blAwbNo: `BLAWB-${seed}`,
+    consigneeAddress1: `QA FF Consignee Address - ${seed}`,
+  };
+}
+
+/**
+ * Qty/Rate only - the real Description/Currency master lists for FF's own Draft Invoice "Add New"
+ * item popup were never confirmed live (a genuinely different module/screen than CB's own Draft
+ * Invoice, whose own 2-entry `DRAFT_INVOICE_ITEM_DESCRIPTIONS` list is CB-tagged and not assumed
+ * valid here), so `FFDraftInvoicePage` discovers real, live-rendered Description options itself
+ * (never a guessed value) rather than this generator supplying one.
+ */
+export interface FFDraftInvoiceItemInput {
+  qty: string;
+  rate: string;
+}
+
+export function generateFFDraftInvoiceItems(seed: number, count = 5): FFDraftInvoiceItemInput[] {
+  return Array.from({ length: count }, (_, i) => ({
+    qty: String(1 + ((seed + i) % 5)),
+    rate: String(100 + seed + i * 10),
+  }));
+}

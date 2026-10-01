@@ -12,6 +12,8 @@ import { VendorBillPage } from '../pages/VendorBillPage';
 import { FFJobPage, FFJobRowData } from '../pages/FFJobPage';
 import { CROPage, CRORowData } from '../pages/CROPage';
 import { FFStuffingPage } from '../pages/FFStuffingPage';
+import { FFDraftInvoicePage, FFDraftInvoiceRowData, FFDraftInvoiceItemUsed } from '../pages/FFDraftInvoicePage';
+import { HBLPage } from '../pages/HBLPage';
 import { CombinedJobPage } from '../pages/CombinedJobPage';
 import { buildCBSourceRecord, CBSourceRecord } from '../utils/cbSourceSetup';
 import { CB_CONFIG, resolvePortLogic } from '../utils/cbConfig';
@@ -33,6 +35,8 @@ import {
   generateFFStuffingContainer,
   generateFFStuffingCargos,
   generateFFStuffingHblGroups,
+  generateFFDraftInvoiceHeader,
+  generateFFDraftInvoiceItems,
   ENQUIRY_UPLOAD_FILES,
 } from '../utils/testData';
 import { captureScreenshot } from '../utils/screenshot';
@@ -1175,9 +1179,11 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
       // right after Update navigates back (readRowData's own retry only waits for the CRO No cell,
       // which is already populated beforehand, so it never actually waits for THIS cell) - retried
       // here directly on the value this step actually needs.
+      // Widened from an earlier 6x1s bound - confirmed live it can still occasionally fall short
+      // under heavier concurrent staging load (several full-suite runs in quick succession).
       let rowAfterUpdate = await cro.readRowData(ffJobData.jobNo);
-      for (let attempt = 0; attempt < 6 && rowAfterUpdate.linerBookingNo !== linerBookingNo; attempt++) {
-        await page.waitForTimeout(1000);
+      for (let attempt = 0; attempt < 15 && rowAfterUpdate.linerBookingNo !== linerBookingNo; attempt++) {
+        await page.waitForTimeout(1500);
         rowAfterUpdate = await cro.readRowData(ffJobData.jobNo);
       }
       console.log(`CRO List row Liner Booking No after Update: "${rowAfterUpdate.linerBookingNo}" (expected "${linerBookingNo}")`);
@@ -1741,5 +1747,374 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
         : 'FAIL';
     console.log(`FINAL RESULT                          : ${ffStuffingOverallResult}`);
     console.log('============================================================');
+
+    // ================= CONTINUATION 7 - STUFFING COMPLETED -> DRAFT INVOICE -> HBL =================
+    // Continues the SAME session/record (same ffJobData.jobNo) created above - no new Enquiry/
+    // Combined Job/CB Job/FF Job/CRO/Stuffing record is created past this point.
+    const ffDraftInvoice = new FFDraftInvoicePage(page);
+    const hbl = new HBLPage(page);
+    const jobNumber = ffJobData.jobNo;
+
+    let stuffingCompletedJobListResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 7 - FF Job List - Verify Stuffing Completed', async () => {
+      await ffJob.navigateFromSidebar();
+      const rowData = await ffJob.readRowData(jobNumber);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_JobList_StuffingCompleted', jobNumber);
+      expect(rowData.status, `FF Job List status for ${jobNumber} should read exactly "Stuffing Completed"`).toBe('Stuffing Completed');
+      stuffingCompletedJobListResult = 'PASS';
+    });
+
+    let siReceivedResult: 'PASS' | 'FAIL' = 'FAIL';
+    let siReceivedToast = '';
+    await test.step('CONTINUATION 7 - Update Status - SI Received', async () => {
+      await ffJob.openUpdateStatusModal(jobNumber);
+      const checked = await ffJob.checkStatus('SI Received');
+      expect(checked, '"SI Received" checkbox should be checked').toBeTruthy();
+      const toastBefore = await currentToastText(page);
+      await ffJob.saveStatusUpdate();
+      siReceivedToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'SI Received', toastBefore).catch(() => '(no toast observed for this action)');
+      const rowData = await ffJob.readRowData(jobNumber);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_JobStatus_SIReceived', jobNumber);
+      console.log('========================================');
+      console.log('FF EXPORT SEA – SI RECEIVED');
+      console.log(`Job Number: ${jobNumber}`);
+      console.log(`Toast: ${siReceivedToast}`);
+      expect(rowData.status, `FF Job List status for ${jobNumber} should read exactly "SI Received" after the update`).toBe('SI Received');
+      console.log('Result: PASS');
+      console.log('========================================');
+      siReceivedResult = 'PASS';
+    });
+
+    let draftMblReceivedResult: 'PASS' | 'FAIL' = 'FAIL';
+    let draftMblReceivedToast = '';
+    await test.step('CONTINUATION 7 - Update Status - Draft MBL Received', async () => {
+      await ffJob.openUpdateStatusModal(jobNumber);
+      const checked = await ffJob.checkStatus('Draft MBL Received');
+      expect(checked, '"Draft MBL Received" checkbox should be checked').toBeTruthy();
+      const toastBefore = await currentToastText(page);
+      await ffJob.saveStatusUpdate();
+      draftMblReceivedToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'Draft MBL Received', toastBefore).catch(() => '(no toast observed for this action)');
+      const rowData = await ffJob.readRowData(jobNumber);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_JobStatus_DraftMBLReceived', jobNumber);
+      console.log('========================================');
+      console.log('FF EXPORT SEA – DRAFT MBL RECEIVED');
+      console.log(`Job Number: ${jobNumber}`);
+      console.log(`Toast: ${draftMblReceivedToast}`);
+      expect(rowData.status, `FF Job List status for ${jobNumber} should read exactly "Draft MBL Received" after the update`).toBe('Draft MBL Received');
+      console.log('Result: PASS');
+      console.log('========================================');
+      draftMblReceivedResult = 'PASS';
+    });
+
+    let initiateDraftInvoiceResult: 'PASS' | 'FAIL' = 'FAIL';
+    let ffInitiateDraftInvoiceToast = '';
+    await test.step('CONTINUATION 7 - Initiate Draft Invoice', async () => {
+      const toastBefore = await currentToastText(page);
+      await ffJob.clickInitiateDraftInvoice(jobNumber);
+      ffInitiateDraftInvoiceToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'Initiate Draft Invoice', toastBefore).catch(() => '(no toast observed for this action)');
+      await expect(ffDraftInvoice.listHeading, 'Initiate Draft Invoice should navigate to the FF Draft Invoice List').toBeVisible({ timeout: 20_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_InitiateDraftInvoice', jobNumber);
+      console.log('====================================================');
+      console.log('FF EXPORT SEA – INITIATE DRAFT INVOICE');
+      console.log('====================================================');
+      console.log(`Job Number: ${jobNumber}`);
+      console.log(`Toast: ${ffInitiateDraftInvoiceToast}`);
+      console.log('Result: PASS');
+      console.log('====================================================');
+      initiateDraftInvoiceResult = 'PASS';
+    });
+
+    let draftInvoiceListResult: 'PASS' | 'FAIL' = 'FAIL';
+    let draftInvoiceRowData!: FFDraftInvoiceRowData;
+    await test.step('CONTINUATION 7 - Draft Invoice - Verify List', async () => {
+      draftInvoiceRowData = await ffDraftInvoice.readRowData(jobNumber);
+      expect(draftInvoiceRowData.invoiceNo, 'A real Draft Invoice Number should be assigned').not.toBe('');
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_List', jobNumber);
+      console.log(`FF Export Sea Draft Invoice located: ${draftInvoiceRowData.invoiceNo} (Job ${jobNumber})`);
+      draftInvoiceListResult = 'PASS';
+    });
+    const draftInvoiceNumber = draftInvoiceRowData.invoiceNo;
+
+    let printResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 7 - Draft Invoice - Print, Save', async () => {
+      const destDir = path.resolve(__dirname, '..', '..', '..', 'test-results', 'AmazerTrans-evidence', 'downloads');
+      fs.mkdirSync(destDir, { recursive: true });
+      const outcome = await ffDraftInvoice.clickListPrintAndHandle(jobNumber, destDir);
+      console.log(`FF Export Sea Draft Invoice Print - real mechanism observed: "${outcome.mechanism}"${outcome.fileName ? ` (file: ${outcome.fileName})` : ''}${outcome.url ? ` (url: ${outcome.url})` : ''}`);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Print_Save', jobNumber);
+      expect(outcome.mechanism, `Draft Invoice Print should produce a real, detectable outcome (download/new tab/navigation), not silently do nothing. Observed: "${outcome.mechanism}"`).not.toBe('unknown');
+      printResult = 'PASS';
+    });
+
+    let viewResult: 'PASS' | 'FAIL' = 'FAIL';
+    let backResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 7 - Draft Invoice - View, Back', async () => {
+      await ffDraftInvoice.viewDraftInvoice(jobNumber);
+      // Confirmed live: this screen's own header fields are real (disabled) textboxes, so their
+      // VALUES never show up in a plain `.innerText()` read of the container (only the floating
+      // labels do) - reading each field's own `inputValue()` is the real, direct check. The Job
+      // Number field's own real label is "Childjob No" (matching this suite's own established
+      // "child job" = individual Job Number naming, e.g. FFJobPage's own `child_job_no` filter).
+      // Exact label matching (not `hasText` substring) avoids "Invoice No" also matching the
+      // real, distinct "Shipper Invoice No" field.
+      const jobNoField = page.locator('div.relative.group', { has: page.getByText('Childjob No', { exact: true }) }).first().getByRole('textbox');
+      const invoiceNoField = page.locator('div.relative.group', { has: page.getByText('Invoice No', { exact: true }) }).first().getByRole('textbox');
+      await expect(jobNoField, `Draft Invoice View screen should show Job Number ${jobNumber}`).toHaveValue(jobNumber, { timeout: 20_000 });
+      await expect(invoiceNoField, `Draft Invoice View screen should show Draft Invoice Number ${draftInvoiceNumber}`).toHaveValue(draftInvoiceNumber, { timeout: 20_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_View', jobNumber);
+      viewResult = 'PASS';
+      await ffDraftInvoice.backToList();
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Back', jobNumber);
+      backResult = 'PASS';
+    });
+
+    let editHeaderResult: 'PASS' | 'FAIL' = 'FAIL';
+    const draftInvoiceHeader = generateFFDraftInvoiceHeader(seed);
+    await test.step('CONTINUATION 7 - Draft Invoice - Edit Header', async () => {
+      await ffDraftInvoice.editDraftInvoice(jobNumber);
+      await ffDraftInvoice.fillHeader(draftInvoiceHeader);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Edit_Header', jobNumber);
+      editHeaderResult = 'PASS';
+    });
+
+    const draftInvoiceItemInputs = generateFFDraftInvoiceItems(seed, 5);
+    let itemsAddResult: 'PASS' | 'FAIL' = 'FAIL';
+    const addedItems: FFDraftInvoiceItemUsed[] = [];
+    await test.step('CONTINUATION 7 - Draft Invoice - Add 5 Invoice Items', async () => {
+      for (let i = 0; i < draftInvoiceItemInputs.length; i++) {
+        const used = await ffDraftInvoice.addInvoiceItem(draftInvoiceItemInputs[i], i);
+        addedItems.push(used);
+      }
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Items_5Records', jobNumber);
+      console.log(`Expected Invoice Items: ${draftInvoiceItemInputs.length}`);
+      console.log(`Actual Invoice Items: ${addedItems.length}`);
+      console.log(`Result: ${addedItems.length >= 5 ? 'PASS' : 'FAIL'}`);
+      expect(addedItems.length, 'At least 5 Invoice Item records should be added').toBeGreaterThanOrEqual(5);
+      itemsAddResult = 'PASS';
+    });
+
+    let itemEditResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 7 - Draft Invoice Item - Edit', async () => {
+      const target = addedItems[0];
+      const updated = await ffDraftInvoice.editInvoiceItem(target.description, { qty: String(Number(target.qty) + 1), rate: String(Number(target.rate) + 50) }, 5);
+      addedItems[0] = updated;
+      await expect(ffDraftInvoice.getInvoiceItemRowByDescription(updated.description), 'Invoice Item row should reflect the updated record').toBeVisible({ timeout: 15_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Item_Edit_Update', jobNumber);
+      itemEditResult = 'PASS';
+    });
+
+    let itemDeleteResult: 'PASS' | 'FAIL' = 'FAIL';
+    let itemDeleteToast = '';
+    await test.step('CONTINUATION 7 - Draft Invoice Item - Delete', async () => {
+      const target = addedItems[1];
+      const toastBefore = await currentToastText(page);
+      await ffDraftInvoice.deleteInvoiceItem(target.description);
+      itemDeleteToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'Draft Invoice Item Delete', toastBefore).catch(() => '(no toast observed for this action)');
+      console.log('FF EXPORT SEA – DRAFT INVOICE ITEM DELETE');
+      console.log(`Toast: ${itemDeleteToast}`);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Item_Delete', jobNumber);
+      console.log('Result: PASS');
+      itemDeleteResult = 'PASS';
+    });
+
+    let mainUpdateResult: 'PASS' | 'FAIL' = 'FAIL';
+    let mainUpdateToast = '';
+    await test.step('CONTINUATION 7 - Draft Invoice - Main Update', async () => {
+      const toastBefore = await currentToastText(page);
+      await ffDraftInvoice.clickUpdate();
+      mainUpdateToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'Draft Invoice Update', toastBefore);
+      await expect(ffDraftInvoice.listHeading, 'Draft Invoice Update should navigate back to the Draft Invoice List').toBeVisible({ timeout: 20_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Final_Update', jobNumber);
+      console.log('====================================================');
+      console.log('FF EXPORT SEA – DRAFT INVOICE UPDATE');
+      console.log('====================================================');
+      console.log(`Job Number: ${jobNumber}`);
+      console.log(`Draft Invoice: ${draftInvoiceNumber}`);
+      console.log(`Toast: ${mainUpdateToast}`);
+      console.log('Result: PASS');
+      console.log('====================================================');
+      mainUpdateResult = 'PASS';
+    });
+
+    const ffDraftInvoiceFilterResults: Array<{ label: string; result: 'PASS' | 'FAIL' }> = [];
+    await test.step('CONTINUATION 7 - Draft Invoice List - Filters (each field independently)', async () => {
+      const filters: FilterCheck[] = [
+        { label: 'Invoice No', apply: () => ffDraftInvoice.filterByInvoiceNo(draftInvoiceRowData.invoiceNo), reset: () => ffDraftInvoice.resetFilter() },
+        { label: 'Invoice Date', apply: () => ffDraftInvoice.filterByInvoiceDate(draftInvoiceRowData.invoiceDate), reset: () => ffDraftInvoice.resetFilter() },
+        { label: 'Shipper', apply: () => ffDraftInvoice.filterByShipper(draftInvoiceRowData.shipper), reset: () => ffDraftInvoice.resetFilter() },
+        { label: 'Consignee', apply: () => ffDraftInvoice.filterByConsignee(draftInvoiceRowData.consignee), reset: () => ffDraftInvoice.resetFilter() },
+        { label: 'SB/BE Number', apply: () => ffDraftInvoice.filterBySbBeNo(draftInvoiceRowData.sbBeNo), reset: () => ffDraftInvoice.resetFilter() },
+      ];
+      const screenshotNames: Record<string, string> = {
+        'Invoice No': 'FFExportSea_DraftInvoice_Filter_InvoiceNo',
+        'Invoice Date': 'FFExportSea_DraftInvoice_Filter_InvoiceDate',
+        Shipper: 'FFExportSea_DraftInvoice_Filter_Shipper',
+        Consignee: 'FFExportSea_DraftInvoice_Filter_Consignee',
+        'SB/BE Number': 'FFExportSea_DraftInvoice_Filter_SB_BE_Number',
+      };
+      for (const f of filters) {
+        await ffDraftInvoice.openFilter();
+        await f.apply();
+        const row = ffDraftInvoice.getRowByJobNo(jobNumber);
+        const visible = await row.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+        console.log(`FF Draft Invoice filter [${f.label}] -> row visible: ${visible}`);
+        await captureScreenshot(page, 'cb-export-sea', screenshotNames[f.label], jobNumber);
+        console.log('========================================');
+        console.log('FF EXPORT SEA DRAFT INVOICE FILTER');
+        console.log(`Field: ${f.label}`);
+        console.log(`Result: ${visible ? 'PASS' : 'FAIL'}`);
+        console.log('========================================');
+        ffDraftInvoiceFilterResults.push({ label: f.label, result: visible ? 'PASS' : 'FAIL' });
+        await f.reset();
+      }
+    });
+
+    let statusGeneratedResult: 'PASS' | 'FAIL' = 'FAIL';
+    let statusGeneratedActual = '';
+    await test.step('CONTINUATION 7 - Draft Invoice - Verify Status Generated', async () => {
+      const rowData = await ffDraftInvoice.readRowData(jobNumber);
+      statusGeneratedActual = rowData.status;
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_Status_Generated', jobNumber);
+      console.log('====================================================');
+      console.log('FF EXPORT SEA – DRAFT INVOICE STATUS');
+      console.log('====================================================');
+      console.log(`Job Number      : ${jobNumber}`);
+      // Confirmed live real status text: "Draft Invoice Generated" (capital "Invoice"), not the
+      // lowercase "Draft invoice Generated" this continuation's own spec literally used.
+      console.log('Expected Status : Draft Invoice Generated');
+      console.log(`Actual Status   : ${statusGeneratedActual}`);
+      expect(statusGeneratedActual, 'Draft Invoice status should read exactly "Draft Invoice Generated"').toBe('Draft Invoice Generated');
+      console.log('Result          : PASS');
+      console.log('====================================================');
+      statusGeneratedResult = 'PASS';
+    });
+
+    let reUpdateResult: 'PASS' | 'FAIL' = 'FAIL';
+    let reUpdateToast = '';
+    await test.step('CONTINUATION 7 - Draft Invoice - Edit and Update Again', async () => {
+      await ffDraftInvoice.editDraftInvoice(jobNumber);
+      const toastBefore = await currentToastText(page);
+      await ffDraftInvoice.clickUpdate();
+      reUpdateToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'Draft Invoice Re-Update', toastBefore);
+      await expect(ffDraftInvoice.listHeading, 'Draft Invoice re-Update should navigate back to the Draft Invoice List').toBeVisible({ timeout: 20_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_DraftInvoice_ReUpdate', jobNumber);
+      console.log('FF EXPORT SEA – DRAFT INVOICE RE-UPDATE');
+      console.log(`Job Number: ${jobNumber}`);
+      console.log(`Toast: ${reUpdateToast}`);
+      console.log('Result: PASS');
+      reUpdateResult = 'PASS';
+    });
+
+    let jobListInvoiceGeneratedResult: 'PASS' | 'FAIL' = 'FAIL';
+    let jobListInvoiceGeneratedActual = '';
+    await test.step('CONTINUATION 7 - FF Job List - Verify Invoice Generated', async () => {
+      await ffJob.navigateFromSidebar();
+      const rowData = await ffJob.readRowData(jobNumber);
+      jobListInvoiceGeneratedActual = rowData.status;
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_JobList_InvoiceGenerated', jobNumber);
+      console.log('====================================================');
+      console.log('FF EXPORT SEA – JOB STATUS AFTER DRAFT INVOICE');
+      console.log('====================================================');
+      console.log(`Job Number      : ${jobNumber}`);
+      console.log('Expected Status : Invoice Generated');
+      console.log(`Actual Status   : ${jobListInvoiceGeneratedActual}`);
+      expect(jobListInvoiceGeneratedActual, 'FF Job List status should read exactly "Invoice Generated"').toBe('Invoice Generated');
+      console.log('Result          : PASS');
+      console.log('====================================================');
+      jobListInvoiceGeneratedResult = 'PASS';
+    });
+
+    let initiateHblResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 7 - Initiate HBL', async () => {
+      await ffJob.clickInitiateHBL(jobNumber);
+      await hbl.expectOnCreateScreen();
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_InitiateHBL', jobNumber);
+      console.log('====================================================');
+      console.log('FF EXPORT SEA – INITIATE HBL');
+      console.log('====================================================');
+      console.log(`Job Number: ${jobNumber}`);
+      console.log('Navigation : HBL Generation - Create');
+      console.log('Result     : PASS');
+      console.log('====================================================');
+      initiateHblResult = 'PASS';
+    });
+
+    console.log('================================================================');
+    console.log('FF EXPORT SEA – STUFFING → DRAFT INVOICE → HBL SUMMARY');
+    console.log('================================================================');
+    console.log('');
+    console.log('Job Number');
+    console.log(`Original Job Number                  : ${jobNumber}`);
+    console.log('');
+    console.log('Job Status');
+    console.log(`Stuffing Completed                   : ${stuffingCompletedJobListResult}`);
+    console.log(`SI Received                          : ${siReceivedResult}`);
+    console.log(`Draft MBL Received                   : ${draftMblReceivedResult}`);
+    console.log('');
+    console.log('Draft Invoice');
+    console.log(`Initiate Draft Invoice               : ${initiateDraftInvoiceResult}`);
+    console.log(`Draft Invoice List                   : ${draftInvoiceListResult}`);
+    console.log(`Print / Save                          : ${printResult}`);
+    console.log(`View                                  : ${viewResult}`);
+    console.log(`Back                                  : ${backResult}`);
+    console.log(`Edit                                  : ${editHeaderResult}`);
+    console.log('');
+    console.log('Invoice Items');
+    console.log('Expected Items                       : 5');
+    console.log(`Actual Items                         : ${addedItems.length}`);
+    console.log(`Add Items                            : ${itemsAddResult}`);
+    console.log(`Edit Item                            : ${itemEditResult}`);
+    console.log(`Delete Item                          : ${itemDeleteResult}`);
+    console.log('');
+    console.log('Draft Invoice Update');
+    console.log(`Final Update                         : ${mainUpdateResult}`);
+    console.log('');
+    console.log('Draft Invoice Filters');
+    for (const r of ffDraftInvoiceFilterResults) {
+      console.log(`${r.label.padEnd(39)}: ${r.result}`);
+    }
+    console.log('');
+    console.log('Draft Invoice Status');
+    console.log('Expected                              : Draft Invoice Generated');
+    console.log(`Actual                                : ${statusGeneratedActual}`);
+    console.log(`Status Validation                     : ${statusGeneratedResult}`);
+    console.log('');
+    console.log('Draft Invoice Re-Update');
+    console.log(`Edit + Update                         : ${reUpdateResult}`);
+    console.log(`Toast Validation                      : ${reUpdateToast ? 'PASS' : 'FAIL'}`);
+    console.log('');
+    console.log('Job List Status');
+    console.log('Expected                              : Invoice Generated');
+    console.log(`Actual                                : ${jobListInvoiceGeneratedActual}`);
+    console.log(`Status Validation                     : ${jobListInvoiceGeneratedResult}`);
+    console.log('');
+    console.log('HBL');
+    console.log(`Initiate HBL                          : ${initiateHblResult}`);
+    console.log(`HBL Generation - Create               : ${initiateHblResult}`);
+    console.log('');
+    console.log('================================================================');
+    const continuation7OverallResult =
+      stuffingCompletedJobListResult === 'PASS' &&
+      siReceivedResult === 'PASS' &&
+      draftMblReceivedResult === 'PASS' &&
+      initiateDraftInvoiceResult === 'PASS' &&
+      draftInvoiceListResult === 'PASS' &&
+      printResult === 'PASS' &&
+      viewResult === 'PASS' &&
+      backResult === 'PASS' &&
+      editHeaderResult === 'PASS' &&
+      itemsAddResult === 'PASS' &&
+      itemEditResult === 'PASS' &&
+      itemDeleteResult === 'PASS' &&
+      mainUpdateResult === 'PASS' &&
+      ffDraftInvoiceFilterResults.every((r) => r.result === 'PASS') &&
+      statusGeneratedResult === 'PASS' &&
+      reUpdateResult === 'PASS' &&
+      jobListInvoiceGeneratedResult === 'PASS' &&
+      initiateHblResult === 'PASS'
+        ? 'PASS'
+        : 'FAIL';
+    console.log(`FINAL RESULT                          : ${continuation7OverallResult}`);
+    console.log('================================================================');
   });
 });

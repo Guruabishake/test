@@ -191,4 +191,32 @@ export class FFJobPage {
   async clickInitiateCRO(jobNo: string) {
     await this.getRowByJobNo(jobNo).getByRole('button', { name: 'Initiate CRO', exact: true }).click({ timeout: 15_000 });
   }
+
+  /**
+   * Generic version of `checkCroReceived` for the Stuffing -> Draft Invoice continuation's own
+   * further real statuses ("SI Received", "Draft MBL Received") - same real `<input type=checkbox>`
+   * convention already confirmed there, just parameterized by status name instead of hardcoded.
+   * `checkCroReceived` itself is left untouched (already-completed Job List -> CRO flow).
+   */
+  async checkStatus(status: string): Promise<boolean> {
+    const checkbox = this.page.getByRole('checkbox', { name: status, exact: true });
+    await checkbox.check({ timeout: 10_000 });
+    return checkbox.isChecked();
+  }
+
+  /** Commits the Update Status modal (the existing `cancelStatusUpdate` is the only other exit path so far - this is the real "Save" counterpart the Stuffing -> Draft Invoice continuation needs). Real success signal is the modal closing and the row's own Status cell reflecting the change, verified by the caller via `readRowData`. */
+  async saveStatusUpdate() {
+    await this.page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 20_000 });
+    await expect(this.page.getByRole('heading', { name: 'Update Status', exact: true })).not.toBeVisible({ timeout: 20_000 });
+  }
+
+  /** Row action confirmed live to appear once the Job's real status reaches the point this continuation requires (Stuffing Completed + SI Received + Draft MBL Received) - real success signal is navigation to the Draft Invoice List, verified by the caller. */
+  async clickInitiateDraftInvoice(jobNo: string) {
+    await this.getRowByJobNo(jobNo).getByRole('button', { name: 'Initiate Draft Invoice', exact: true }).click({ timeout: 20_000 });
+  }
+
+  /** Row action confirmed live to appear once the Job's own Status reads "Invoice Generated" - real success signal is navigation to the real "HBL Generation - Create" screen, verified by the caller. */
+  async clickInitiateHBL(jobNo: string) {
+    await this.getRowByJobNo(jobNo).getByRole('button', { name: 'Initiate HBL', exact: true }).click({ timeout: 20_000 });
+  }
 }

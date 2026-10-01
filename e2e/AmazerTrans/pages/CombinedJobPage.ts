@@ -95,15 +95,21 @@ export class CombinedJobPage {
     return this.lastConsoleError ?? undefined;
   }
 
-  /** Real app navigation: sidebar CRM -> Sales Management -> "Combined Job". Same toggle-safe pattern as every other Page Object here. */
+  /**
+   * Real app navigation: sidebar CRM -> Sales Management -> "Combined Job". Same toggle-safe
+   * pattern as every other Page Object here. Explicit timeouts throughout (confirmed live: this
+   * suite's own playwright.config.ts sets no global actionTimeout, so an action with none can hang
+   * for the ENTIRE remaining test budget instead of failing fast - a real, confirmed occurrence
+   * here under heavier staging load).
+   */
   async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: 'CRM', exact: true }).click();
+    await this.page.getByRole('button', { name: 'CRM', exact: true }).click({ timeout: 15_000 });
     const link = this.page.getByRole('button', { name: 'Combined Job', exact: true });
-    if (!(await link.isVisible())) {
-      await this.page.getByRole('button', { name: 'Sales Management', exact: true }).click();
+    if (!(await link.isVisible().catch(() => false))) {
+      await this.page.getByRole('button', { name: 'Sales Management', exact: true }).click({ timeout: 15_000 });
     }
-    await link.click();
-    await expect(this.pageHeading).toBeVisible();
+    await link.click({ timeout: 15_000 });
+    await expect(this.pageHeading).toBeVisible({ timeout: 15_000 });
   }
 
   /** Enquiry No is globally unique - the reliable way to locate exactly one record, never by row position. Same grid-row pattern already used throughout this suite. */
