@@ -1015,3 +1015,129 @@ export function generateFFDraftInvoiceItems(seed: number, count = 5): FFDraftInv
     rate: String(100 + seed + i * 10),
   }));
 }
+
+/** Confirmed live real field set for HBL Generation's own Shipper/Consignee/Notify Party/Forwarder Agent accordion sections - all four share the same 7 fields (Company Name/Address 1/2/3/Mobile No/Land Line No/Email), though Company Name is pre-filled (read-only) for Shipper/Consignee and this continuation only needs a subset per section. */
+export interface FFHblPartyData {
+  companyName: string;
+  address1: string;
+  address2: string;
+  address3: string;
+  mobileNo: string;
+  landLineNo: string;
+  email: string;
+}
+
+export function generateFFHblNotifyParty(seed: number): FFHblPartyData {
+  return {
+    companyName: `QA HBL Notify Party ${seed}`,
+    address1: `QA Notify Address 1 - ${seed}`,
+    address2: `QA Notify Address 2 - ${seed}`,
+    address3: `QA Notify Address 3 - ${seed}`,
+    mobileNo: `9${String(seed).padStart(9, '0').slice(-9)}`,
+    landLineNo: `044${String(seed).padStart(7, '0').slice(-7)}`,
+    email: `qa.hbl.notify.${seed}@example.com`,
+  };
+}
+
+export function generateFFHblForwarderAgent(seed: number): FFHblPartyData {
+  return {
+    companyName: `QA HBL Forwarder Agent ${seed}`,
+    address1: `QA Forwarder Address 1 - ${seed}`,
+    address2: `QA Forwarder Address 2 - ${seed}`,
+    address3: `QA Forwarder Address 3 - ${seed}`,
+    mobileNo: `8${String(seed).padStart(9, '0').slice(-9)}`,
+    landLineNo: `044${String(seed + 1).padStart(7, '0').slice(-7)}`,
+    email: `qa.hbl.forwarder.${seed}@example.com`,
+  };
+}
+
+/** Confirmed live real field set for HBL Generation's own "General Information" accordion - Export Reference/Export Instruction/Pre Carriage By/Place of Receipt By Pre-carrier/Port of Delivery/Loading Pier/Terminal/No Of Originals/Point & Country of Origin of Goods/Freight Payable at are plain textboxes (Port of Delivery is NOT a combobox despite sitting beside the real Port of Loading/Port of Discharge comboboxes); Type of Move is the one real combobox here (Port of Loading/Port of Discharge arrive pre-filled from the upstream chain and are left as-is). */
+export interface FFHblGeneralInfoData {
+  exportReference: string;
+  exportInstruction: string;
+  preCarriageBy: string;
+  placeOfReceiptByPreCarrier: string;
+  portOfDelivery: string;
+  loadingPierTerminal: string;
+  noOfOriginals: string;
+  pointCountryOriginOfGoods: string;
+  freightPayableAt: string;
+  /** Confirmed live: lives below the Upload Document section (outside the accordion) and is required - Create is blocked by native "Please fill out this field." without it. */
+  placeAndDateOfIssue: string;
+  shippingLineName: string;
+  /** Confirmed live: the app pre-fills this by joining every upstream vessel/voyage (329 chars for 10 plans) and the backend then rejects Create with "value too long for type character varying(255)" - it has to be shortened by hand. */
+  vesselVoyageNo: string;
+}
+
+export function generateFFHblGeneralInfo(seed: number): FFHblGeneralInfoData {
+  return {
+    exportReference: `QA Export Ref ${seed}`,
+    exportInstruction: `QA Export Instruction ${seed}`,
+    preCarriageBy: 'Road',
+    placeOfReceiptByPreCarrier: `QA Place of Receipt ${seed}`,
+    portOfDelivery: `QA Port of Delivery ${seed}`,
+    loadingPierTerminal: `QA Loading Pier ${seed}`,
+    noOfOriginals: '3',
+    pointCountryOriginOfGoods: 'India',
+    freightPayableAt: `QA Freight Payable At ${seed}`,
+    placeAndDateOfIssue: `Chennai, ${new Date().toISOString().slice(0, 10)}`,
+    shippingLineName: `QA Shipping Line ${seed}`,
+    vesselVoyageNo: `QA Vessel / VOY-${seed}`,
+  };
+}
+
+/** Confirmed live real field set for the HBL Container table's own row Edit popup - Container No. itself is pre-filled/read-only, not part of this input. */
+export interface FFHblContainerEditData {
+  markAndNumbers: string;
+  containerSealNo: string;
+  numberOfPackages: string;
+  descriptionOfCommodities: string;
+  grossWeight: string;
+  measurementCbm: string;
+  shippingOnBoard: string;
+}
+
+export function generateFFHblContainerEdit(seed: number, index: number): FFHblContainerEditData {
+  return {
+    markAndNumbers: `AS PER PACKING LIST ${seed}-${index + 1}`,
+    containerSealNo: `SEAL-${seed}-${String(index + 1).padStart(2, '0')}`,
+    numberOfPackages: String(10 + index),
+    descriptionOfCommodities: `QA HBL Commodity ${seed}-${index + 1}`,
+    grossWeight: String(1000 + seed + index * 10),
+    measurementCbm: String(10 + index),
+    shippingOnBoard: `2026-10-${String(1 + (index % 28)).padStart(2, '0')}`,
+  };
+}
+
+/** Confirmed live real field set for the HBL "Freight Rates, Weight and/Or Measurement" table's own row Edit popup. */
+export interface FFHblFreightRateEditData {
+  subjectCorrection: string;
+  prepaid: string;
+  collect: string;
+}
+
+export function generateFFHblFreightRateEdit(seed: number): FFHblFreightRateEditData {
+  return {
+    subjectCorrection: `QA Freight Correction ${seed}`,
+    prepaid: String(1000 + seed),
+    collect: '0',
+  };
+}
+
+/** Shipper only needs Address 3/Land Line No per this continuation's own task (Company Name is pre-filled/read-only there). */
+export function generateFFHblShipperEdit(seed: number): { address3: string; landLineNo: string } {
+  return {
+    address3: `QA HBL Shipper Address 3 - ${seed}`,
+    landLineNo: `044${String(seed).padStart(7, '0').slice(-7)}`,
+  };
+}
+
+/** Consignee only needs Address 1/Mobile No/Land Line No/Email per this continuation's own task. */
+export function generateFFHblConsigneeEdit(seed: number): { address1: string; mobileNo: string; landLineNo: string; email: string } {
+  return {
+    address1: `QA HBL Consignee Address 1 - ${seed}`,
+    mobileNo: `7${String(seed).padStart(9, '0').slice(-9)}`,
+    landLineNo: `044${String(seed + 1).padStart(7, '0').slice(-7)}`,
+    email: `qa.hbl.consignee.${seed}@example.com`,
+  };
+}

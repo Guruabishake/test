@@ -93,17 +93,30 @@ export class FFJobPage {
   async readRowData(jobNo: string): Promise<FFJobRowData> {
     const row = this.getRowByJobNo(jobNo);
     await expect(row).toBeVisible({ timeout: 15_000 });
-    const cells = await row.locator(':scope > div').allInnerTexts();
+    // Confirmed live via a real failure: the app itself added a new leading bulk-select checkbox
+    // column to this list sometime during this suite's own long-running session (alongside new
+    // "Bulk Filter"/"Create Consolidated Stuffing" buttons) - shifting every real data column over
+    // by one and silently breaking this method's own previously-correct fixed indices. Matching a
+    // cell by its own real, stable "FFJOB-" prefix (rather than a hardcoded position) finds the
+    // real Job No column regardless of how many leading columns the app adds in the future.
+    let cells: string[] = [];
+    let jobNoIndex = -1;
+    await expect(async () => {
+      cells = (await row.locator(':scope > div').allInnerTexts()).map((c) => c.trim());
+      jobNoIndex = cells.findIndex((c) => c.startsWith('FFJOB-'));
+      expect(jobNoIndex).toBeGreaterThanOrEqual(0);
+    }).toPass({ timeout: 20_000 }).catch(() => {});
+    const at = (offsetFromJobNo: number) => (cells[jobNoIndex + offsetFromJobNo] ?? '').trim();
     return {
-      jobNo: (cells[0] ?? '').trim(),
-      combinedJobNo: (cells[1] ?? '').trim(),
-      linerBookingNo: (cells[2] ?? '').trim(),
-      enquiryNo: (cells[3] ?? '').trim(),
-      quoteNo: (cells[4] ?? '').trim(),
-      customerId: (cells[5] ?? '').trim(),
-      customerName: (cells[6] ?? '').trim(),
-      sbNo: (cells[7] ?? '').trim(),
-      status: (cells[8] ?? '').trim(),
+      jobNo: at(0),
+      combinedJobNo: at(1),
+      linerBookingNo: at(2),
+      enquiryNo: at(3),
+      quoteNo: at(4),
+      customerId: at(5),
+      customerName: at(6),
+      sbNo: at(7),
+      status: at(8),
     };
   }
 

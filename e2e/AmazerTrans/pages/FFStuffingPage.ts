@@ -4,6 +4,7 @@ import { selectCustomDropdown, selectFromOpenDropdownPanel } from '../utils/comm
 
 export interface FFStuffingRowData {
   jobNo: string;
+  combinedJobNo: string;
   enquiryNo: string;
   stuffingNo: string;
   sbNo: string;
@@ -176,23 +177,33 @@ export class FFStuffingPage {
   async readRowData(jobNo: string): Promise<FFStuffingRowData> {
     const row = this.getRowByJobNo(jobNo);
     await expect(row).toBeVisible({ timeout: 15_000 });
+    // The app has added a "Combined Job No" column between Job No and Enquiry No since this was
+    // first written (confirmed live via error-context.md header dump: Job No / Combined Job No /
+    // Enquiry No / Stuffing No / SB No. / Product Type / Shipper / Consignee / Status / Actions) -
+    // same real column-shift class of issue already confirmed on FFJobPage's own readRowData, so
+    // every field after Job No is read as an OFFSET from the real Job No column (matched by its own
+    // stable "FFJOB-" prefix), not an absolute position, to survive further shifts.
     let cells: string[] = [];
+    let jobNoIndex = -1;
     for (let attempt = 0; attempt < 6; attempt++) {
-      cells = await row.locator(':scope > div').allInnerTexts();
-      if ((cells[2] ?? '').trim() !== '') {
+      cells = (await row.locator(':scope > div').allInnerTexts()).map((c) => c.trim());
+      jobNoIndex = cells.findIndex((c) => c.startsWith('FFJOB-'));
+      if (jobNoIndex >= 0 && (cells[jobNoIndex + 3] ?? '') !== '') {
         break;
       }
       await this.page.waitForTimeout(500);
     }
+    const at = (offset: number) => (jobNoIndex >= 0 ? (cells[jobNoIndex + offset] ?? '').trim() : '');
     return {
-      jobNo: (cells[0] ?? '').trim(),
-      enquiryNo: (cells[1] ?? '').trim(),
-      stuffingNo: (cells[2] ?? '').trim(),
-      sbNo: (cells[3] ?? '').trim(),
-      productType: (cells[4] ?? '').trim(),
-      shipper: (cells[5] ?? '').trim(),
-      consignee: (cells[6] ?? '').trim(),
-      status: (cells[7] ?? '').trim(),
+      jobNo: jobNoIndex >= 0 ? cells[jobNoIndex] : '',
+      combinedJobNo: at(1),
+      enquiryNo: at(2),
+      stuffingNo: at(3),
+      sbNo: at(4),
+      productType: at(5),
+      shipper: at(6),
+      consignee: at(7),
+      status: at(8),
     };
   }
 

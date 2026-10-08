@@ -13,7 +13,7 @@ import { FFJobPage, FFJobRowData } from '../pages/FFJobPage';
 import { CROPage, CRORowData } from '../pages/CROPage';
 import { FFStuffingPage } from '../pages/FFStuffingPage';
 import { FFDraftInvoicePage, FFDraftInvoiceRowData, FFDraftInvoiceItemUsed } from '../pages/FFDraftInvoicePage';
-import { HBLPage } from '../pages/HBLPage';
+import { HBLPage, FFHblRowData } from '../pages/HBLPage';
 import { CombinedJobPage } from '../pages/CombinedJobPage';
 import { buildCBSourceRecord, CBSourceRecord } from '../utils/cbSourceSetup';
 import { CB_CONFIG, resolvePortLogic } from '../utils/cbConfig';
@@ -37,6 +37,13 @@ import {
   generateFFStuffingHblGroups,
   generateFFDraftInvoiceHeader,
   generateFFDraftInvoiceItems,
+  generateFFHblShipperEdit,
+  generateFFHblConsigneeEdit,
+  generateFFHblNotifyParty,
+  generateFFHblForwarderAgent,
+  generateFFHblGeneralInfo,
+  generateFFHblContainerEdit,
+  generateFFHblFreightRateEdit,
   ENQUIRY_UPLOAD_FILES,
 } from '../utils/testData';
 import { captureScreenshot } from '../utils/screenshot';
@@ -810,12 +817,21 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
 
     await test.step('CONTINUATION 4 - FF Export Sea - Job List, locate record', async () => {
       await ffJob.navigateFromSidebar();
+      // Confirmed live: with 100+ accumulated records on this shared staging list (from this
+      // whole suite's own many runs today), raw substring (`hasText`) matching on the unfiltered
+      // page 1 risks a false-positive match against an unrelated row whose own SB No happens to
+      // contain this one as a substring (same real class of bug already confirmed/fixed elsewhere
+      // in this suite for other identifiers) - using the List's own SB Number filter narrows this
+      // to the exact real record first.
+      await ffJob.openFilter();
+      await ffJob.filterBySbNo(sbNo);
       const row = ffJob.getRowByJobNo(sbNo);
       await expect(row, `An FF Export Sea Job row for ${sbNo} should exist (spawned automatically by the same FF-enabled Enquiry)`).toBeVisible({ timeout: 15_000 });
       ffJobData = await ffJob.readRowData(sbNo);
       expect(ffJobData.jobNo, 'FF Job Number should be a real, non-empty value').not.toBe('');
       expect(ffJobData.enquiryNo, 'FF Job should belong to the SAME real Enquiry as the CB Export Sea chain').toBe(source.enquiryNo);
       console.log(`FF Export Sea Job located: ${ffJobData.jobNo} (Enquiry ${ffJobData.enquiryNo}, Combined Job ${ffJobData.combinedJobNo})`);
+      await ffJob.resetFilter();
     });
 
     interface FFFilterCheck {
@@ -862,8 +878,13 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
         let actualValue = '(no matching row returned)';
         let pass = false;
         if (rowVisible) {
-          const cells = await row.locator(':scope > div').allInnerTexts();
-          actualValue = (cells[check.columnIndex] ?? '').trim();
+          // Same real column-shift confirmed on FFJobPage's own readRowData (the app added a new
+          // leading bulk-select checkbox column to this list) - columnIndex here is an OFFSET from
+          // the real Job No column (matched by its own stable "FFJOB-" prefix), not an absolute
+          // position, so it survives that shift.
+          const cells = (await row.locator(':scope > div').allInnerTexts()).map((c) => c.trim());
+          const jobNoIndex = cells.findIndex((c) => c.startsWith('FFJOB-'));
+          actualValue = jobNoIndex >= 0 ? (cells[jobNoIndex + check.columnIndex] ?? '').trim() : '(Job No column not found in row)';
           pass = actualValue === check.value;
         }
 
@@ -956,8 +977,11 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
       let actualValue = '(no matching row returned)';
       let pass = false;
       if (rowVisible) {
-        const cells = await row.locator(':scope > div').allInnerTexts();
-        actualValue = (cells[2] ?? '').trim();
+        // Same real column-shift confirmed on FFJobPage's own readRowData - offset from the real
+        // Job No column (matched by its own stable "FFJOB-" prefix), not an absolute position.
+        const cells = (await row.locator(':scope > div').allInnerTexts()).map((c) => c.trim());
+        const jobNoIndex = cells.findIndex((c) => c.startsWith('FFJOB-'));
+        actualValue = jobNoIndex >= 0 ? (cells[jobNoIndex + 2] ?? '').trim() : '(Job No column not found in row)';
         pass = actualValue === rowData.linerBookingNo;
       }
       await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_Filter_LinerBookingJobNumber', sbNo);
@@ -1592,12 +1616,12 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
     await test.step('CONTINUATION 6 - Stuffing List Filters', async () => {
       const checks: FFStuffingFilterCheck[] = [
         { label: 'Job Number', value: stuffingRowAfterUpdate.jobNo, apply: () => ffStuffing.filterByJobNo(stuffingRowAfterUpdate.jobNo), columnIndex: 0, screenshotName: 'FFExportSea_Stuffing_Filter_JobNumber' },
-        { label: 'Enquiry Number', value: stuffingRowAfterUpdate.enquiryNo, apply: () => ffStuffing.filterByEnquiryNo(stuffingRowAfterUpdate.enquiryNo), columnIndex: 1, screenshotName: 'FFExportSea_Stuffing_Filter_EnquiryNumber' },
-        { label: 'Stuffing Number', value: stuffingRowAfterUpdate.stuffingNo, apply: () => ffStuffing.filterByStuffingNo(stuffingRowAfterUpdate.stuffingNo), columnIndex: 2, screenshotName: 'FFExportSea_Stuffing_Filter_StuffingNumber' },
-        { label: 'Product Type', value: stuffingRowAfterUpdate.productType, apply: () => ffStuffing.filterByProductType(stuffingRowAfterUpdate.productType), columnIndex: 4, screenshotName: 'FFExportSea_Stuffing_Filter_ProductType' },
-        { label: 'Shipper', value: stuffingRowAfterUpdate.shipper, apply: () => ffStuffing.filterByShipper(stuffingRowAfterUpdate.shipper), columnIndex: 5, screenshotName: 'FFExportSea_Stuffing_Filter_Shipper' },
-        { label: 'Consignee', value: stuffingRowAfterUpdate.consignee, apply: () => ffStuffing.filterByConsignee(stuffingRowAfterUpdate.consignee), columnIndex: 6, screenshotName: 'FFExportSea_Stuffing_Filter_Consignee' },
-        { label: 'SB Name', value: stuffingRowAfterUpdate.sbNo, apply: () => ffStuffing.filterBySbNo(stuffingRowAfterUpdate.sbNo), columnIndex: 3, screenshotName: 'FFExportSea_Stuffing_Filter_SBName' },
+        { label: 'Enquiry Number', value: stuffingRowAfterUpdate.enquiryNo, apply: () => ffStuffing.filterByEnquiryNo(stuffingRowAfterUpdate.enquiryNo), columnIndex: 2, screenshotName: 'FFExportSea_Stuffing_Filter_EnquiryNumber' },
+        { label: 'Stuffing Number', value: stuffingRowAfterUpdate.stuffingNo, apply: () => ffStuffing.filterByStuffingNo(stuffingRowAfterUpdate.stuffingNo), columnIndex: 3, screenshotName: 'FFExportSea_Stuffing_Filter_StuffingNumber' },
+        { label: 'Product Type', value: stuffingRowAfterUpdate.productType, apply: () => ffStuffing.filterByProductType(stuffingRowAfterUpdate.productType), columnIndex: 5, screenshotName: 'FFExportSea_Stuffing_Filter_ProductType' },
+        { label: 'Shipper', value: stuffingRowAfterUpdate.shipper, apply: () => ffStuffing.filterByShipper(stuffingRowAfterUpdate.shipper), columnIndex: 6, screenshotName: 'FFExportSea_Stuffing_Filter_Shipper' },
+        { label: 'Consignee', value: stuffingRowAfterUpdate.consignee, apply: () => ffStuffing.filterByConsignee(stuffingRowAfterUpdate.consignee), columnIndex: 7, screenshotName: 'FFExportSea_Stuffing_Filter_Consignee' },
+        { label: 'SB Name', value: stuffingRowAfterUpdate.sbNo, apply: () => ffStuffing.filterBySbNo(stuffingRowAfterUpdate.sbNo), columnIndex: 4, screenshotName: 'FFExportSea_Stuffing_Filter_SBName' },
       ];
 
       for (const check of checks) {
@@ -1609,8 +1633,12 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
         let actualValue = '(no matching row returned)';
         let pass = false;
         if (rowVisible) {
-          const cells = await row.locator(':scope > div').allInnerTexts();
-          actualValue = (cells[check.columnIndex] ?? '').trim();
+          // Job No column itself is stable (confirmed live) - columnIndex here is an absolute
+          // position relative to it, matching the real confirmed order: Job No / Combined Job No /
+          // Enquiry No / Stuffing No / SB No. / Product Type / Shipper / Consignee / Status.
+          const cells = (await row.locator(':scope > div').allInnerTexts()).map((c) => c.trim());
+          const jobNoIndex = cells.findIndex((c) => c.startsWith('FFJOB-'));
+          actualValue = jobNoIndex >= 0 ? (cells[jobNoIndex + check.columnIndex] ?? '').trim() : '(Job No column not found in row)';
           pass = actualValue === check.value;
         }
 
@@ -2116,5 +2144,230 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
         : 'FAIL';
     console.log(`FINAL RESULT                          : ${continuation7OverallResult}`);
     console.log('================================================================');
+
+    // ================= CONTINUATION 8 - HBL GENERATION (CREATE -> UPDATE -> EDIT -> VIEW -> PRINT -> FILTERS) =================
+    // Continues the SAME "HBL Generation - Create" screen reached by the prior "Initiate HBL" step
+    // above - no new Job/Draft Invoice/HBL record is created past this point.
+    let hblNumber = '';
+    await test.step('CONTINUATION 8 - HBL - Create Screen', async () => {
+      // Confirmed live: unlike Stuffing No, "HBL No" is genuinely NOT yet assigned on a fresh
+      // Create screen - it is only captured later, from the List, once the Main Update below has
+      // actually persisted the record.
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_Create', jobNumber);
+    });
+
+    let hblShipperResult: 'PASS' | 'FAIL' = 'FAIL';
+    const hblShipperData = generateFFHblShipperEdit(seed);
+    await test.step('CONTINUATION 8 - HBL Shipper Section', async () => {
+      await hbl.fillShipper(hblShipperData);
+      hblShipperResult = 'PASS';
+    });
+
+    let hblConsigneeResult: 'PASS' | 'FAIL' = 'FAIL';
+    const hblConsigneeData = generateFFHblConsigneeEdit(seed);
+    await test.step('CONTINUATION 8 - HBL Consignee Section', async () => {
+      await hbl.fillConsignee(hblConsigneeData);
+      hblConsigneeResult = 'PASS';
+    });
+
+    let hblNotifyPartyResult: 'PASS' | 'FAIL' = 'FAIL';
+    const hblNotifyPartyData = generateFFHblNotifyParty(seed);
+    await test.step('CONTINUATION 8 - HBL Notify Party Section', async () => {
+      await hbl.fillNotifyParty(hblNotifyPartyData);
+      hblNotifyPartyResult = 'PASS';
+    });
+
+    let hblForwarderAgentResult: 'PASS' | 'FAIL' = 'FAIL';
+    const hblForwarderAgentData = generateFFHblForwarderAgent(seed);
+    await test.step('CONTINUATION 8 - HBL Forwarder Agent Section', async () => {
+      await hbl.fillForwarderAgent(hblForwarderAgentData);
+      hblForwarderAgentResult = 'PASS';
+    });
+
+    let hblGeneralInfoResult: 'PASS' | 'FAIL' = 'FAIL';
+    const hblGeneralInfoData = generateFFHblGeneralInfo(seed);
+    await test.step('CONTINUATION 8 - HBL General Information', async () => {
+      const used = await hbl.fillGeneralInformation(hblGeneralInfoData);
+      console.log(`FF Export Sea HBL - Type of Move (real UI value): "${used.typeOfMove}"`);
+      hblGeneralInfoResult = 'PASS';
+    });
+
+    let hblContainerizedResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL Containerized Selection', async () => {
+      const checked = await hbl.checkContainerized();
+      expect(checked, '"Containerized" checkbox should be checked').toBeTruthy();
+      const tableContainerNumbers = await hbl.getContainerNumbersInTable();
+      const expectedContainerNumbers = source.containers.map((c) => c.containerNo);
+      console.log(`FF Export Sea HBL - Container table real numbers: ${JSON.stringify(tableContainerNumbers)}`);
+      console.log(`FF Export Sea HBL - Expected (upstream chain) container numbers: ${JSON.stringify(expectedContainerNumbers)}`);
+      expect(tableContainerNumbers.length, 'HBL Container table should have at least one real container row from the upstream chain, not an invented/empty one').toBeGreaterThan(0);
+      for (const containerNo of expectedContainerNumbers) {
+        expect(tableContainerNumbers, `HBL Container table should include the real upstream container ${containerNo}`).toContain(containerNo);
+      }
+      hblContainerizedResult = 'PASS';
+    });
+
+    let hblContainerTableResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL Container Table - Edit All Rows', async () => {
+      for (let i = 0; i < source.containers.length; i++) {
+        const containerNo = source.containers[i].containerNo;
+        const editData = generateFFHblContainerEdit(seed, i);
+        await hbl.editContainerRow(containerNo, editData);
+        const rowText = (await hbl.getContainerRowByContainerNo(containerNo).innerText()).replace(/\n+/g, ' | ');
+        expect(rowText, `Container ${containerNo} row should reflect its updated values. Actual row: ${rowText}`).toContain(editData.containerSealNo);
+      }
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_ContainerTable_Updated', jobNumber);
+      hblContainerTableResult = 'PASS';
+    });
+
+    let hblFreightRatesResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL Freight Rates - Edit All Rows', async () => {
+      const freightRowCount = await hbl.getFreightRateRowCount();
+      expect(freightRowCount, 'HBL Freight Rates table should have at least one real row').toBeGreaterThan(0);
+      for (let i = 0; i < freightRowCount; i++) {
+        const editData = generateFFHblFreightRateEdit(seed + i);
+        await hbl.editFreightRateRow(i, editData);
+      }
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_FreightRates_Updated', jobNumber);
+      hblFreightRatesResult = 'PASS';
+    });
+
+    let hblDocumentUploadResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL Document Upload', async () => {
+      const toastBefore = await currentToastText(page);
+      const docType = await hbl.uploadDocument(ENQUIRY_UPLOAD_FILES.primary);
+      const toastAfter = await captureToastAndScreenshot(page, 'cb-export-sea', 'HBL Document Upload', toastBefore).catch(() => '(no toast observed for this action)');
+      console.log(`FF Export Sea HBL - Document Type selected (real UI value): "${docType}"`);
+      console.log(`FF Export Sea HBL Document Upload Toast: ${toastAfter}`);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_DocumentUpload', jobNumber);
+      hblDocumentUploadResult = 'PASS';
+    });
+
+    let hblMainUpdateResult: 'PASS' | 'FAIL' = 'FAIL';
+    let hblRowAfterUpdate!: FFHblRowData;
+    await test.step('CONTINUATION 8 - HBL Main Update', async () => {
+      const toastBefore = await currentToastText(page);
+      await hbl.clickUpdate();
+      const toastAfter = await captureToastAndScreenshot(page, 'cb-export-sea', 'HBL Main Update', toastBefore);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_MainUpdate', jobNumber);
+      console.log(`FF Export Sea HBL Main Update Toast: ${toastAfter}`);
+      expect(toastAfter, `HBL Create should not be rejected by the app. Toast: "${toastAfter}"`).not.toMatch(/too long|invalid|error|fail|syntax|required|not allowed/i);
+      await hbl.navigateFromSidebar();
+      // The real HBL No is only assigned now that Update has actually persisted the record - the
+      // topmost List row (confirmed live convention throughout this suite: newest record sorts
+      // first) is this one.
+      hblRowAfterUpdate = await hbl.readTopRow();
+      hblNumber = hblRowAfterUpdate.hblNo;
+      expect(hblNumber, 'A real HBL Number should be assigned after Update').not.toBe('');
+      console.log(`FF Export Sea HBL located: ${hblNumber} (Job ${jobNumber})`);
+      hblMainUpdateResult = 'PASS';
+    });
+
+    let hblEditUpdateResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL Edit, Update', async () => {
+      await hbl.editHbl(hblNumber);
+      const toastBefore = await currentToastText(page);
+      await hbl.clickUpdate();
+      const toastAfter = await captureToastAndScreenshot(page, 'cb-export-sea', 'HBL Edit Update', toastBefore);
+      console.log(`FF Export Sea HBL Edit+Update Toast: ${toastAfter}`);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_Edit_Update', jobNumber);
+      await expect(hbl.listHeading, 'HBL Edit + Update should navigate back to the HBL List').toBeVisible({ timeout: 20_000 });
+      hblEditUpdateResult = 'PASS';
+    });
+
+    let hblViewResult: 'PASS' | 'FAIL' = 'FAIL';
+    let hblBackResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL View, Back', async () => {
+      await hbl.viewHbl(hblNumber);
+      const hblNoField = page.locator('div.relative.group', { hasText: 'HBL No' }).first().getByRole('textbox');
+      await expect(hblNoField, 'HBL View screen should show the same real HBL Number').toHaveValue(hblNumber, { timeout: 20_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_View', jobNumber);
+      hblViewResult = 'PASS';
+      await hbl.backToList();
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_BackToList', jobNumber);
+      hblBackResult = 'PASS';
+    });
+
+    let hblPrintResult: 'PASS' | 'FAIL' = 'FAIL';
+    await test.step('CONTINUATION 8 - HBL Print', async () => {
+      const destDir = path.resolve(__dirname, '..', '..', '..', 'test-results', 'AmazerTrans-evidence', 'downloads');
+      fs.mkdirSync(destDir, { recursive: true });
+      const outcome = await hbl.clickListPrintAndHandle(hblNumber, destDir);
+      console.log(`FF Export Sea HBL Print - real mechanism observed: "${outcome.mechanism}"${outcome.fileName ? ` (file: ${outcome.fileName})` : ''}${outcome.url ? ` (url: ${outcome.url})` : ''}`);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_HBL_Print', jobNumber);
+      expect(outcome.mechanism, `HBL Print should produce a real, detectable outcome (download/new tab/navigation), not silently do nothing. Observed: "${outcome.mechanism}"`).not.toBe('unknown');
+      if (outcome.mechanism === 'same-tab-navigation') {
+        await page.goBack().catch(() => {});
+      }
+      await expect(hbl.listHeading, 'HBL List should be visible again after the Print action').toBeVisible({ timeout: 20_000 });
+      hblPrintResult = 'PASS';
+    });
+
+    const hblFilterResults: Array<{ label: string; result: 'PASS' | 'FAIL' }> = [];
+    await test.step('CONTINUATION 8 - HBL Filters (each field independently)', async () => {
+      const filters: FilterCheck[] = [
+        { label: 'HBL', apply: () => hbl.filterByHbl(hblNumber), reset: () => hbl.resetFilter() },
+        { label: 'Product Type', apply: () => hbl.filterByProductType(hblRowAfterUpdate.productType), reset: () => hbl.resetFilter() },
+        { label: 'Shipper', apply: () => hbl.filterByShipper(hblRowAfterUpdate.shipper), reset: () => hbl.resetFilter() },
+        { label: 'Consignee', apply: () => hbl.filterByConsignee(hblRowAfterUpdate.consignee), reset: () => hbl.resetFilter() },
+      ];
+      const screenshotNames: Record<string, string> = {
+        HBL: 'FFExportSea_HBL_Filter_HBL',
+        'Product Type': 'FFExportSea_HBL_Filter_ProductType',
+        Shipper: 'FFExportSea_HBL_Filter_Shipper',
+        Consignee: 'FFExportSea_HBL_Filter_Consignee',
+      };
+      for (const f of filters) {
+        await hbl.openFilter();
+        await f.apply();
+        const row = hbl.getRowByHblNo(hblNumber);
+        const visible = await row.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+        console.log(`FF Export Sea HBL filter [${f.label}] -> row visible: ${visible}`);
+        await captureScreenshot(page, 'cb-export-sea', screenshotNames[f.label], jobNumber);
+        console.log(`Result: ${visible ? 'PASS' : 'FAIL'}`);
+        hblFilterResults.push({ label: f.label, result: visible ? 'PASS' : 'FAIL' });
+        await f.reset();
+      }
+    });
+
+    console.log('');
+    console.log('FF EXPORT SEA – HBL GENERATION RESULT');
+    console.log(`Shipper Details                 : ${hblShipperResult}`);
+    console.log(`Consignee Details                : ${hblConsigneeResult}`);
+    console.log(`Notify Party Details             : ${hblNotifyPartyResult}`);
+    console.log(`Forwarder Agent Details          : ${hblForwarderAgentResult}`);
+    console.log(`General Information              : ${hblGeneralInfoResult}`);
+    console.log(`Containerized Selection          : ${hblContainerizedResult}`);
+    console.log(`Container Table Update           : ${hblContainerTableResult}`);
+    console.log(`Freight Rates Update             : ${hblFreightRatesResult}`);
+    console.log(`Document Upload                  : ${hblDocumentUploadResult}`);
+    console.log(`Main HBL Update                  : ${hblMainUpdateResult}`);
+    console.log(`HBL Edit + Update                : ${hblEditUpdateResult}`);
+    console.log(`HBL View                         : ${hblViewResult}`);
+    console.log(`HBL Back                         : ${hblBackResult}`);
+    console.log(`HBL Print                        : ${hblPrintResult}`);
+    for (const r of hblFilterResults) {
+      const label = r.label === 'HBL' ? 'HBL Filter' : r.label === 'Product Type' ? 'Product Type Filter' : r.label === 'Shipper' ? 'Shipper Filter' : 'Consignee Filter';
+      console.log(`${label.padEnd(33)}: ${r.result}`);
+    }
+    const hblOverallResult =
+      hblShipperResult === 'PASS' &&
+      hblConsigneeResult === 'PASS' &&
+      hblNotifyPartyResult === 'PASS' &&
+      hblForwarderAgentResult === 'PASS' &&
+      hblGeneralInfoResult === 'PASS' &&
+      hblContainerizedResult === 'PASS' &&
+      hblContainerTableResult === 'PASS' &&
+      hblFreightRatesResult === 'PASS' &&
+      hblDocumentUploadResult === 'PASS' &&
+      hblMainUpdateResult === 'PASS' &&
+      hblEditUpdateResult === 'PASS' &&
+      hblViewResult === 'PASS' &&
+      hblBackResult === 'PASS' &&
+      hblPrintResult === 'PASS' &&
+      hblFilterResults.every((r) => r.result === 'PASS')
+        ? 'PASS'
+        : 'FAIL';
+    console.log(`FINAL RESULT                     : ${hblOverallResult}`);
   });
 });

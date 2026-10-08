@@ -103,10 +103,24 @@ export class CombinedJobPage {
    * here under heavier staging load).
    */
   async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: 'CRM', exact: true }).click({ timeout: 15_000 });
     const link = this.page.getByRole('button', { name: 'Combined Job', exact: true });
-    if (!(await link.isVisible().catch(() => false))) {
-      await this.page.getByRole('button', { name: 'Sales Management', exact: true }).click({ timeout: 15_000 });
+    // Confirmed live: the sidebar's own "CRM" icon click can occasionally not register/switch the
+    // currently-open module menu (a genuine transient UI hiccup, not a design issue - this exact
+    // click pattern works reliably everywhere else in this suite) - bounded retry, same convention
+    // already used for other confirmed transient UI hiccups in this suite.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.getByRole('button', { name: 'CRM', exact: true }).click({ timeout: 15_000 });
+      if (await link.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        break;
+      }
+      const salesManagementVisible = await this.page.getByRole('button', { name: 'Sales Management', exact: true }).isVisible({ timeout: 5_000 }).catch(() => false);
+      if (salesManagementVisible) {
+        await this.page.getByRole('button', { name: 'Sales Management', exact: true }).click({ timeout: 15_000 });
+        if (await link.isVisible({ timeout: 5_000 }).catch(() => false)) {
+          break;
+        }
+      }
+      console.log(`CombinedJobPage.navigateFromSidebar: CRM submenu not ready on attempt ${attempt} - retrying.`);
     }
     await link.click({ timeout: 15_000 });
     await expect(this.pageHeading).toBeVisible({ timeout: 15_000 });
@@ -516,10 +530,16 @@ export class CombinedJobPage {
     await expect(this.page.getByRole('cell', { name: fileName, exact: true }).first()).toBeVisible({ timeout: 20000 });
   }
 
-  /** The rich form's own bottom "Update" button - persists General/Job info, Cargo Details, and every Package/Container/Cargo/Upload change made on this screen. */
+  /**
+   * The rich form's own bottom "Update" button - persists General/Job info, Cargo Details, and
+   * every Package/Container/Cargo/Upload change made on this screen. Explicit, more generous
+   * timeouts throughout (confirmed live: the default 5s expect timeout can genuinely fall short
+   * here under heavier concurrent staging load - same real issue already confirmed and fixed
+   * elsewhere in this same Page Object's own navigateFromSidebar).
+   */
   async saveCombinedJob() {
-    await this.page.getByRole('button', { name: 'Update', exact: true }).click();
-    await expect(this.pageHeading).toBeVisible();
+    await this.page.getByRole('button', { name: 'Update', exact: true }).click({ timeout: 20_000 });
+    await expect(this.pageHeading).toBeVisible({ timeout: 20_000 });
   }
 
   /**
