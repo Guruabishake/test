@@ -739,6 +739,11 @@ export interface VendorBillLineItemData {
 }
 
 /**
+/** FF Export Sea Vendor Bill number - distinct from CB's own `TEST-VB-<seed>` (same run, same seed) so the two can never collide. */
+export function generateFFVendorBillNo(seed: number): string {
+  return `FF-VB-${seed}`;
+}
+
  * Confirmed live via the real "+Add New" line-item popup on the Vendor Bill Create/Edit form (a
  * full dump of its own Description option list, 36 real entries): this popup's own master list
  * uses a THIRD distinct real format from both Draft Invoice's ("<Charge>-Direct Incomes (CB)") and

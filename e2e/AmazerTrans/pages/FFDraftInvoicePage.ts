@@ -164,6 +164,11 @@ export class FFDraftInvoicePage {
   async editDraftInvoice(jobNo: string) {
     await this.getRowByJobNo(jobNo).locator('button').nth(2).click({ timeout: 20_000 });
     await expect(this.editHeading).toBeVisible({ timeout: 15_000 });
+    // Confirmed live via a failed re-Update (no toast, "Childjob No" left focused = native required-field
+    // validation): the heading renders BEFORE the form's own data finishes loading, so an immediate
+    // Update click submits a blank form. Waiting for the job's own number to populate closes that race.
+    const jobNoField = this.page.locator('div.relative.group', { has: this.page.getByText('Childjob No', { exact: true }) }).first().getByRole('textbox');
+    await expect(jobNoField, `Draft Invoice Edit form should finish loading ${jobNo}`).toHaveValue(jobNo, { timeout: 20_000 });
   }
 
   /**

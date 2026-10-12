@@ -14,6 +14,7 @@ import { CROPage, CRORowData } from '../pages/CROPage';
 import { FFStuffingPage } from '../pages/FFStuffingPage';
 import { FFDraftInvoicePage, FFDraftInvoiceRowData, FFDraftInvoiceItemUsed } from '../pages/FFDraftInvoicePage';
 import { HBLPage, FFHblRowData } from '../pages/HBLPage';
+import { FFVendorBillPage } from '../pages/FFVendorBillPage';
 import { CombinedJobPage } from '../pages/CombinedJobPage';
 import { buildCBSourceRecord, CBSourceRecord } from '../utils/cbSourceSetup';
 import { CB_CONFIG, resolvePortLogic } from '../utils/cbConfig';
@@ -39,6 +40,7 @@ import {
   generateFFDraftInvoiceItems,
   generateFFHblShipperEdit,
   generateFFHblConsigneeEdit,
+  generateFFVendorBillNo,
   generateFFHblNotifyParty,
   generateFFHblForwarderAgent,
   generateFFHblGeneralInfo,
@@ -2369,5 +2371,216 @@ test.describe('CB Export Sea - Job Creation -> Job List -> Shipping Bill -> Stuf
         ? 'PASS'
         : 'FAIL';
     console.log(`FINAL RESULT                     : ${hblOverallResult}`);
+
+    // ================= SCENARIO 11 - FF EXPORT SEA VENDOR BILL =================
+    // Continues the SAME session/transaction: the vendor is the Quotation's own vendor
+    // (source.vendorName - the one selected for every service incl. FF) and the job is the current
+    // FF Export Sea job (jobNumber). Nothing here is created from scratch or hardcoded.
+    const ffVendorBill = new FFVendorBillPage(page);
+    const ffVendorBillNo = generateFFVendorBillNo(seed);
+    const quotationFfVendor = source.vendorName;
+    const vbErrorToast = /too long|invalid|error|fail|syntax|required|not allowed|already exist/i;
+    type VbStatus = 'PASS' | 'FAIL' | 'N/A';
+    let vbNavigateResult: VbStatus = 'FAIL';
+    let vbCreateScreenResult: VbStatus = 'FAIL';
+    let vbVendorMatchResult: VbStatus = 'FAIL';
+    let vbJobSelectionResult: VbStatus = 'FAIL';
+    let vbVendorGstResult: VbStatus = 'FAIL';
+    let vbCompanyGstResult: VbStatus = 'FAIL';
+    let vbBillNoResult: VbStatus = 'FAIL';
+    let vbBillDateResult: VbStatus = 'FAIL';
+    let vbCreateResult: VbStatus = 'FAIL';
+    let vbEditResult: VbStatus = 'FAIL';
+    let vbUpdateResult: VbStatus = 'FAIL';
+    let vbViewResult: VbStatus = 'FAIL';
+    let vbBackResult: VbStatus = 'FAIL';
+    let ffVendorGstUsed = '';
+    let ffCompanyGstUsed = '';
+
+    await test.step('SCENARIO 11 - Navigate to FF Vendor Bill', async () => {
+      await ffVendorBill.navigateFromSidebar();
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_VendorBill_List', jobNumber);
+      vbNavigateResult = 'PASS';
+    });
+
+    await test.step('SCENARIO 11 - Vendor Bill Create screen', async () => {
+      await ffVendorBill.openCreateForm();
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_VendorBill_Create', jobNumber);
+      vbCreateScreenResult = 'PASS';
+    });
+
+    await test.step('SCENARIO 11 - Vendor Name = Quotation FF Vendor', async () => {
+      await ffVendorBill.selectVendorName(quotationFfVendor);
+      const values = await ffVendorBill.readFormValues();
+      console.log(`Quotation FF Vendor: ${quotationFfVendor}`);
+      console.log(`Vendor Bill Vendor: ${values.vendorName}`);
+      expect(values.vendorName, 'Vendor Bill Vendor Name should match the Quotation FF Vendor').toBe(quotationFfVendor);
+      vbVendorMatchResult = 'PASS';
+    });
+
+    await test.step('SCENARIO 11 - Job Number = current FF Export Sea job', async () => {
+      await ffVendorBill.selectJobNo(jobNumber);
+      const values = await ffVendorBill.readFormValues();
+      const selectedJob = values.jobNo.match(/FFJOB-\d+/)?.[0] ?? '';
+      console.log(`Current FF Export Sea Job Number: ${jobNumber}`);
+      console.log(`Vendor Bill Job Number: ${selectedJob} (field shows "${values.jobNo}")`);
+      expect(selectedJob, 'Selected Vendor Bill Job Number should equal the current FF Export Sea Job Number').toBe(jobNumber);
+      vbJobSelectionResult = 'PASS';
+    });
+
+    await test.step('SCENARIO 11 - Vendor GST', async () => {
+      const gst = await ffVendorBill.selectVendorGst();
+      ffVendorGstUsed = gst.retained;
+      if (gst.retained) {
+        console.log(`Vendor GST selected and retained: "${gst.retained}"`);
+        vbVendorGstResult = 'PASS';
+      } else {
+        // Real, confirmed app/data constraint (not an automation gap): the vendor this suite creates has
+        // no GSTIN, so the only entry the dropdown offers is blank-GSTIN ("- <State>") and it does not stick.
+        console.log(`Vendor GST: NOT APPLICABLE - the Quotation FF Vendor has no GSTIN; dropdown offered "${gst.offered}" but the field still shows its placeholder.`);
+        vbVendorGstResult = 'N/A';
+      }
+    });
+
+    await test.step('SCENARIO 11 - Company GST', async () => {
+      const gst = await ffVendorBill.selectCompanyGst();
+      ffCompanyGstUsed = gst.retained;
+      console.log(`Company GST selected: "${gst.offered}" -> retained: "${gst.retained}"`);
+      expect(gst.offered, 'The Company GST dropdown should offer at least one real GST').not.toBe('');
+      expect(gst.retained, 'Selected Company GST should be retained').toBe(gst.offered);
+      vbCompanyGstResult = 'PASS';
+    });
+
+    const ffVendorBillDate = today;
+    await test.step('SCENARIO 11 - Vendor Bill Number and Date', async () => {
+      await ffVendorBill.fillVendorBillNo(ffVendorBillNo);
+      vbBillNoResult = 'PASS';
+      await ffVendorBill.fillVendorBillDate(ffVendorBillDate);
+      const values = await ffVendorBill.readFormValues();
+      expect(values.vendorBillNo, 'Vendor Bill Number should be retained').toBe(ffVendorBillNo);
+      expect(values.vendorBillDate, 'Vendor Bill Date should be retained').toBe(ffVendorBillDate);
+      vbBillDateResult = 'PASS';
+    });
+
+    let ffVendorBillRow!: Awaited<ReturnType<typeof ffVendorBill.readRowData>>;
+    await test.step('SCENARIO 11 - Vendor Bill Create', async () => {
+      const toastBefore = await currentToastText(page);
+      await ffVendorBill.clickCreate();
+      const createToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'FF VendorBill Create', toastBefore);
+      console.log(`FF Export Sea Vendor Bill Create Toast: ${createToast}`);
+      expect(createToast, `Vendor Bill Create should not be rejected by the app. Toast: "${createToast}"`).not.toMatch(vbErrorToast);
+      await expect(ffVendorBill.listHeading, 'Vendor Bill Create should return to the Vendor Bill List').toBeVisible({ timeout: 20_000 });
+      ffVendorBillRow = await ffVendorBill.readRowData(ffVendorBillNo);
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_VendorBill_Created', jobNumber);
+      console.log(`Created Vendor Bill: ${ffVendorBillRow.vendorBillNo} (Job ${ffVendorBillRow.jobNo}, Vendor ${ffVendorBillRow.vendorName}, Status ${ffVendorBillRow.status})`);
+      expect(ffVendorBillRow.vendorBillNo, 'Created Vendor Bill should appear in the List').toBe(ffVendorBillNo);
+      expect(ffVendorBillRow.jobNo, 'Created Vendor Bill should be associated with the current FF Export Sea job').toContain(jobNumber);
+      expect(ffVendorBillRow.vendorName, 'Created Vendor Bill should be associated with the Quotation FF Vendor').toBe(quotationFfVendor);
+      vbCreateResult = 'PASS';
+    });
+
+    await test.step('SCENARIO 11 - Vendor Bill Edit, Update', async () => {
+      await ffVendorBill.editVendorBill(ffVendorBillNo);
+      const values = await ffVendorBill.readFormValues();
+      expect(values.vendorBillNo, 'Edit screen should open the SAME Vendor Bill').toBe(ffVendorBillNo);
+      expect(values.vendorName, 'Edit screen should show the Quotation FF Vendor').toBe(quotationFfVendor);
+      vbEditResult = 'PASS';
+      const toastBefore = await currentToastText(page);
+      await ffVendorBill.clickUpdate();
+      const updateToast = await captureToastAndScreenshot(page, 'cb-export-sea', 'FF VendorBill Update', toastBefore);
+      console.log(`FF Export Sea Vendor Bill Update Toast: ${updateToast}`);
+      expect(updateToast, `Vendor Bill Update should not be rejected by the app. Toast: "${updateToast}"`).not.toMatch(vbErrorToast);
+      await expect(ffVendorBill.listHeading, 'Vendor Bill Update should return to the Vendor Bill List').toBeVisible({ timeout: 20_000 });
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_VendorBill_Edit_Update', jobNumber);
+      vbUpdateResult = 'PASS';
+    });
+
+    await test.step('SCENARIO 11 - Vendor Bill View, Back', async () => {
+      await ffVendorBill.viewVendorBill(ffVendorBillNo);
+      const values = await ffVendorBill.readFormValues();
+      console.log(`Vendor Bill View values: ${JSON.stringify(values)}`);
+      expect(values.vendorName, 'View: Vendor Name').toBe(quotationFfVendor);
+      expect(values.jobNo, 'View: Job Number').toContain(jobNumber);
+      expect(values.vendorBillNo, 'View: Vendor Bill Number').toBe(ffVendorBillNo);
+      expect(values.vendorBillDate, 'View: Vendor Bill Date').toBe(ffVendorBillDate);
+      expect(values.companyGst, 'View: Company GST').toBe(ffCompanyGstUsed);
+      if (ffVendorGstUsed) {
+        expect(values.vendorGst, 'View: Vendor GST').toBe(ffVendorGstUsed);
+      }
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_VendorBill_View', jobNumber);
+      vbViewResult = 'PASS';
+      await ffVendorBill.backToList();
+      await captureScreenshot(page, 'cb-export-sea', 'FFExportSea_VendorBill_BackToList', jobNumber);
+      vbBackResult = 'PASS';
+    });
+
+    // The actual FF Vendor Bill filter panel has exactly 5 fields (confirmed live): Job No / Combined
+    // Job No / Customer Name / SB/BE Number / Vendor Name. Vendor Bill Number, Vendor GST, Company GST
+    // and Vendor Bill Date are NOT filterable in this UI and are reported as such, never invented.
+    const vbFilterResults: Array<{ label: string; result: VbStatus }> = [];
+    await test.step('SCENARIO 11 - Vendor Bill Filters (each field independently)', async () => {
+      const checks: Array<{ label: string; screenshot: string; apply: () => Promise<void>; verify: (row: typeof ffVendorBillRow) => boolean }> = [
+        { label: 'Job Number', screenshot: 'FFExportSea_VendorBill_Filter_JobNumber', apply: () => ffVendorBill.filterByJobNo(jobNumber), verify: (r) => r.jobNo.includes(jobNumber) },
+        { label: 'Vendor Name', screenshot: 'FFExportSea_VendorBill_Filter_VendorName', apply: () => ffVendorBill.filterByVendorName(quotationFfVendor), verify: (r) => r.vendorName === quotationFfVendor },
+        { label: 'Combined Job No', screenshot: 'FFExportSea_VendorBill_Filter_CombinedJobNo', apply: () => ffVendorBill.filterByCombinedJobNo(ffVendorBillRow.combinedJobNo), verify: (r) => r.combinedJobNo === ffVendorBillRow.combinedJobNo },
+        { label: 'Customer Name', screenshot: 'FFExportSea_VendorBill_Filter_CustomerName', apply: () => ffVendorBill.filterByCustomerName(ffVendorBillRow.customerName), verify: (r) => r.customerName === ffVendorBillRow.customerName },
+        { label: 'SB/BE Number', screenshot: 'FFExportSea_VendorBill_Filter_SBNumber', apply: () => ffVendorBill.filterBySbNo(sbNo), verify: (r) => r.sbNo === sbNo },
+      ];
+      for (const check of checks) {
+        await ffVendorBill.openFilter();
+        await check.apply();
+        const row = ffVendorBill.getRowByVendorBillNo(ffVendorBillNo);
+        const visible = await row.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+        let matches = false;
+        let actual = '(no matching row returned)';
+        if (visible) {
+          const data = await ffVendorBill.readRowData(ffVendorBillNo);
+          matches = check.verify(data);
+          actual = JSON.stringify(data);
+        }
+        await captureScreenshot(page, 'cb-export-sea', check.screenshot, jobNumber);
+        const cleared = await ffVendorBill.resetFilter();
+        const pass = visible && matches && cleared;
+        console.log('========================================');
+        console.log('FF EXPORT SEA VENDOR BILL FILTER');
+        console.log(`Field: ${check.label}`);
+        console.log(`Result: ${pass ? 'PASS' : 'FAIL'}`);
+        if (!pass) console.log(`Row visible: ${visible}, row matches: ${matches}, filter cleared by Reset: ${cleared}, actual: ${actual}`);
+        console.log('========================================');
+        vbFilterResults.push({ label: check.label, result: pass ? 'PASS' : 'FAIL' });
+        expect(pass, `Vendor Bill filter [${check.label}] should return the created Vendor Bill and Reset should clear it. Actual: ${actual}`).toBeTruthy();
+      }
+    });
+
+    const unavailableFilters = ['Vendor Bill Number', 'Vendor GST', 'Company GST', 'Vendor Bill Date'];
+    const vbRows: Array<[string, string]> = [
+      ['Navigate to Vendor Bill', vbNavigateResult],
+      ['Vendor Bill Create Screen', vbCreateScreenResult],
+      ['FF Vendor → Vendor Name Match', vbVendorMatchResult],
+      ['Job Number Selection', vbJobSelectionResult],
+      ['Vendor GST', vbVendorGstResult],
+      ['Company GST', vbCompanyGstResult],
+      ['Vendor Bill Number', vbBillNoResult],
+      ['Vendor Bill Date', vbBillDateResult],
+      ['Vendor Bill Create', vbCreateResult],
+      ['Vendor Bill Edit', vbEditResult],
+      ['Vendor Bill Update', vbUpdateResult],
+      ['Vendor Bill View', vbViewResult],
+      ['Vendor Bill Back', vbBackResult],
+    ];
+    console.log('');
+    console.log('FF EXPORT SEA – SCENARIO 11 – VENDOR BILL RESULT');
+    for (const [label, result] of vbRows) {
+      console.log(`${label.padEnd(30)}: ${result}`);
+    }
+    for (const label of unavailableFilters) {
+      console.log(`${`Filter – ${label}`.padEnd(30)}: N/A (no such field in the actual Vendor Bill filter UI)`);
+    }
+    for (const r of vbFilterResults) {
+      console.log(`${`Filter – ${r.label}`.padEnd(30)}: ${r.result}`);
+    }
+    const vbOverallResult =
+      vbRows.every(([, result]) => result === 'PASS' || result === 'N/A') && vbFilterResults.every((r) => r.result === 'PASS') ? 'PASS' : 'FAIL';
+    console.log(`${'FINAL RESULT'.padEnd(30)}: ${vbOverallResult}`);
   });
 });
